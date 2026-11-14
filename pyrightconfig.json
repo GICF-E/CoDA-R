@@ -1,0 +1,6 @@
+{
+  "include": ["experiment", "analysis"],
+  "exclude": ["**/__pycache__", "experiment/outputs", ".tmp"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard"
+}

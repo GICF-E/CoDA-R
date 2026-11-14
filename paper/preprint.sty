@@ -1,0 +1,230 @@
+% Single-author preprint style derived from neurips_2025.sty (preprint mode)
+% by Roman Garnett and the authors of nips15submit_e.sty.
+% Differences from the original: 6.0in text width, no conference notice,
+% no line numbers or anonymization, and a single-author title block.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{preprint}[2026/09/27 single-author preprint style]
+
+% -------- options --------
+\newif\if@natbib\@natbibtrue
+\DeclareOption{nonatbib}{\@natbibfalse}
+\ProcessOptions\relax
+
+% -------- fonts --------
+\renewcommand{\rmdefault}{ptm}
+\renewcommand{\sfdefault}{phv}
+
+\if@natbib
+  \RequirePackage{natbib}
+\fi
+
+% -------- page geometry --------
+\RequirePackage[letterpaper]{geometry}
+\AtBeginDocument{%
+  \newgeometry{
+    textheight = 9in,
+    textwidth = 6in,
+    top = 1in,
+    headheight = 12pt,
+    headsep = 25pt,
+    footskip = 30pt
+  }%
+}
+
+\widowpenalty = 10000
+\clubpenalty = 10000
+\flushbottom
+\sloppy
+
+% -------- font sizes with reduced leading --------
+\renewcommand{\normalsize}{%
+  \@setfontsize\normalsize\@xpt\@xipt
+  \abovedisplayskip 7\p@ \@plus 2\p@ \@minus 5\p@
+  \abovedisplayshortskip \z@ \@plus 3\p@
+  \belowdisplayskip \abovedisplayskip
+  \belowdisplayshortskip 4\p@ \@plus 3\p@ \@minus 3\p@
+}
+\normalsize
+\renewcommand{\small}{%
+  \@setfontsize\small\@ixpt\@xpt
+  \abovedisplayskip 6\p@ \@plus 1.5\p@ \@minus 4\p@
+  \abovedisplayshortskip \z@ \@plus 2\p@
+  \belowdisplayskip \abovedisplayskip
+  \belowdisplayshortskip 3\p@ \@plus 2\p@ \@minus 2\p@
+}
+\renewcommand{\footnotesize}{\@setfontsize\footnotesize\@ixpt\@xpt}
+\renewcommand{\scriptsize}{\@setfontsize\scriptsize\@viipt\@viiipt}
+\renewcommand{\tiny}{\@setfontsize\tiny\@vipt\@viipt}
+\renewcommand{\large}{\@setfontsize\large\@xiipt{14}}
+\renewcommand{\Large}{\@setfontsize\Large\@xivpt{16}}
+\renewcommand{\LARGE}{\@setfontsize\LARGE\@xviipt{20}}
+\renewcommand{\huge}{\@setfontsize\huge\@xxpt{23}}
+\renewcommand{\Huge}{\@setfontsize\Huge\@xxvpt{28}}
+
+% -------- sections --------
+\renewcommand{\section}{%
+  \@startsection{section}{1}{\z@}%
+    {-2.0ex \@plus -0.5ex \@minus -0.2ex}%
+    {1.5ex \@plus 0.3ex \@minus 0.2ex}%
+    {\large\bf\raggedright}%
+}
+\renewcommand{\subsection}{%
+  \@startsection{subsection}{2}{\z@}%
+    {-1.8ex \@plus -0.5ex \@minus -0.2ex}%
+    {0.8ex \@plus 0.2ex}%
+    {\normalsize\bf\raggedright}%
+}
+\renewcommand{\subsubsection}{%
+  \@startsection{subsubsection}{3}{\z@}%
+    {-1.5ex \@plus -0.5ex \@minus -0.2ex}%
+    {0.5ex \@plus 0.2ex}%
+    {\normalsize\bf\raggedright}%
+}
+\renewcommand{\paragraph}{%
+  \@startsection{paragraph}{4}{\z@}%
+    {1.5ex \@plus 0.5ex \@minus 0.2ex}%
+    {-1em}%
+    {\normalsize\bf}%
+}
+\renewcommand{\subparagraph}{%
+  \@startsection{subparagraph}{5}{\z@}%
+    {1.5ex \@plus 0.5ex \@minus 0.2ex}%
+    {-1em}%
+    {\normalsize\bf}%
+}
+
+% -------- floats and captions --------
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\bottomfraction}{0.4}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.7}
+
+\newlength{\@ppabovecaptionskip}\setlength{\@ppabovecaptionskip}{7\p@}
+\newlength{\@ppbelowcaptionskip}\setlength{\@ppbelowcaptionskip}{\z@}
+\setlength{\abovecaptionskip}{\@ppabovecaptionskip}
+\setlength{\belowcaptionskip}{\@ppbelowcaptionskip}
+
+% Table captions sit above the table, so the two skips are swapped
+\renewenvironment{table}
+  {\setlength{\abovecaptionskip}{\@ppbelowcaptionskip}%
+   \setlength{\belowcaptionskip}{\@ppabovecaptionskip}%
+   \@float{table}}
+  {\end@float}
+
+% -------- footnotes, paragraphs and lists --------
+\setlength{\footnotesep}{6.65\p@}
+\setlength{\skip\footins}{9\p@ \@plus 4\p@ \@minus 2\p@}
+\renewcommand{\footnoterule}{\kern-3\p@ \hrule width 12pc \kern 2.6\p@}
+\setcounter{footnote}{0}
+
+\setlength{\parindent}{\z@}
+\setlength{\parskip}{5.5\p@}
+
+\setlength{\topsep}{4\p@ \@plus 1\p@ \@minus 2\p@}
+\setlength{\partopsep}{1\p@ \@plus 0.5\p@ \@minus 0.5\p@}
+\setlength{\itemsep}{2\p@ \@plus 1\p@ \@minus 0.5\p@}
+\setlength{\parsep}{2\p@ \@plus 1\p@ \@minus 0.5\p@}
+\setlength{\leftmargin}{3pc}
+\setlength{\leftmargini}{\leftmargin}
+\setlength{\leftmarginii}{2em}
+\setlength{\leftmarginiii}{1.5em}
+\setlength{\leftmarginiv}{1.0em}
+\setlength{\leftmarginv}{0.5em}
+\def\@listi{\leftmargin\leftmargini}
+\def\@listii{\leftmargin\leftmarginii
+  \labelwidth\leftmarginii
+  \advance\labelwidth-\labelsep
+  \topsep 2\p@ \@plus 1\p@ \@minus 0.5\p@
+  \parsep 1\p@ \@plus 0.5\p@ \@minus 0.5\p@
+  \itemsep \parsep}
+\def\@listiii{\leftmargin\leftmarginiii
+  \labelwidth\leftmarginiii
+  \advance\labelwidth-\labelsep
+  \topsep 1\p@ \@plus 0.5\p@ \@minus 0.5\p@
+  \parsep \z@
+  \partopsep 0.5\p@ \@plus 0\p@ \@minus 0.5\p@
+  \itemsep \topsep}
+\def\@listiv{\leftmargin\leftmarginiv
+  \labelwidth\leftmarginiv
+  \advance\labelwidth-\labelsep}
+\def\@listv{\leftmargin\leftmarginv
+  \labelwidth\leftmarginv
+  \advance\labelwidth-\labelsep}
+\def\@listvi{\leftmargin\leftmarginvi
+  \labelwidth\leftmarginvi
+  \advance\labelwidth-\labelsep}
+
+% -------- author metadata --------
+\newcommand{\@affiliation}{}
+\newcommand{\@email}{}
+\newcommand{\affiliation}[1]{\renewcommand{\@affiliation}{#1}}
+\newcommand{\email}[1]{\renewcommand{\@email}{#1}}
+
+% Single author: name on the first line, affiliation and email on the second
+\newcommand{\@authorblock}{%
+  {\large\bf\@author}\par
+  \vskip 3\p@
+  \@affiliation\quad\textperiodcentered\quad\texttt{\@email}\par
+}
+
+% -------- title --------
+\renewcommand{\maketitle}{%
+  \par
+  \begingroup
+    \renewcommand{\thefootnote}{\fnsymbol{footnote}}
+    \long\def\@makefntext##1{%
+      \parindent 1em\noindent
+      \hbox to 1.8em{\hss $\m@th ^{\@thefnmark}$}##1
+    }
+    \thispagestyle{empty}
+    \@maketitle
+    \@thanks
+  \endgroup
+  \setcounter{footnote}{0}
+  \let\maketitle\relax
+  \let\thanks\relax
+}
+
+\newcommand{\@toptitlebar}{%
+  \hrule height 4\p@
+  \vskip 0.25in
+  \vskip -\parskip
+}
+\newcommand{\@bottomtitlebar}{%
+  \vskip 0.29in
+  \vskip -\parskip
+  \hrule height 1\p@
+  \vskip 0.09in
+}
+
+\renewcommand{\@maketitle}{%
+  \vbox{%
+    \hsize\textwidth
+    \linewidth\hsize
+    \vskip 0.1in
+    \@toptitlebar
+    \centering
+    {\LARGE\bf \@title\par}
+    \@bottomtitlebar
+    \vskip 0.12in
+    \@authorblock
+    \vskip 0.3in \@minus 0.1in
+  }
+}
+
+% -------- abstract --------
+\renewenvironment{abstract}%
+{%
+  \vskip 0.075in%
+  \centerline{\large\bf \abstractname}%
+  \vspace{0.5ex}%
+  \begin{quote}%
+}
+{%
+  \par%
+  \end{quote}%
+  \vskip 1ex%
+}
+
+\endinput

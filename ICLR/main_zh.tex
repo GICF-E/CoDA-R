@@ -1,0 +1,955 @@
+% !TEX program = xelatex
+% !BIB program = bibtex
+% !TEX encoding = UTF-8
+% 中文草稿必须用 xelatex 编译（xelatex -> bibtex -> xelatex -> xelatex），
+% xeCJK 不支持 pdflatex。英文终稿时删除下面"中文支持"一节即可回到官方 pdflatex 流程。
+\documentclass{article}
+\usepackage{iclr2027_conference,times}
+
+% 左侧灰色行号是 ICLR 官方模板在投稿模式下的要求（审稿人按行号提意见），
+% 终稿加 \iclrfinalcopy 后自动消失。本地修改时想暂时隐藏，取消下一行注释即可，投稿前记得恢复。
+% \renewcommand{\iclrruler}[1]{}
+
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{amsmath,amssymb,amsthm,mathtools,bm}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\floatname{algorithm}{算法}
+\algrenewcommand\algorithmicrequire{\textbf{输入：}}
+% 附录浮动体用 [!htbp] 让 LaTeX 自行填页，section 边界用 \FloatBarrier 拦住，避免 [H] 造成的整页空白
+\usepackage[section]{placeins}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.85}
+\setcounter{topnumber}{4}
+\setcounter{bottomnumber}{3}
+\setcounter{totalnumber}{6}
+% 浮动体页从顶部依次排列，不在浮动体之间均匀拉开空白
+\makeatletter
+\setlength{\@fptop}{0pt}
+\setlength{\@fpsep}{\floatsep}
+\setlength{\@fpbot}{0pt plus 1fil}
+\makeatother
+
+% -------- 中文支持（仅草稿阶段） --------
+\usepackage{xeCJK}
+\setCJKmainfont{SimSun}[BoldFont = SimHei, ItalicFont = KaiTi]
+\setCJKsansfont{Microsoft YaHei}
+\setCJKmonofont{FangSong}
+\XeTeXlinebreaklocale "zh"
+\XeTeXlinebreakskip = 0pt plus 1pt
+
+\renewcommand{\proofname}{证明}
+% ICLR 样式把摘要标题写死为 Abstract，这里仅替换标题文字，其余排版与样式文件一致
+\renewenvironment{abstract}{\vskip.075in\centerline{\large\sc 摘要}\vspace{0.5ex}\begin{quote}}{\par\end{quote}\vskip 1ex}
+
+% -------- 定理环境 --------
+\theoremstyle{plain}
+\newtheorem{theorem}{定理}[section]
+\newtheorem{lemma}[theorem]{引理}
+\newtheorem{corollary}[theorem]{推论}
+\newtheorem{proposition}[theorem]{命题}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{注}
+
+% -------- 记号 --------
+\newcommand{\Expl}{\mathrm{Expl}}
+\newcommand{\Proj}{\Pi}
+\newcommand{\simplex}{\Delta}
+% 向量用小写粗体
+\newcommand{\bx}{{\bm{x}}}
+\newcommand{\by}{{\bm{y}}}
+\newcommand{\bv}{{\bm{v}}}
+\newcommand{\bw}{{\bm{w}}}
+\newcommand{\bz}{{\bm{z}}}
+\newcommand{\bu}{{\bm{u}}}
+\newcommand{\bd}{{\bm{d}}}
+\newcommand{\bq}{{\bm{q}}}
+\newcommand{\br}{{\bm{r}}}
+\newcommand{\be}{{\bm{e}}}
+\newcommand{\brho}{{\bm{\rho}}}
+\newcommand{\bell}{{\bm{\ell}}}
+\newcommand{\aug}{\tilde{\bell}}
+\newcommand{\dx}{\Delta\bx}
+\newcommand{\coda}{CoDA}
+\newcommand{\codar}{CoDA-R}
+\newcommand{\rnad}{R-NaD-PPO}
+\title{Coupled Dual-Adversarial Regularized Self-Play}
+
+\author{Antiquus S.~Hippocampus, Natalia Cerebro \& Amelie P. Amygdale \\
+Department of Computer Science\\
+Cranberry-Lemon University\\
+Pittsburgh, PA 15213, USA \\
+\texttt{\{hippo,brain,jen\}@cs.cranberry-lemon.edu}
+}
+
+%\iclrfinalcopy % 投稿版保持注释
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+双人零和博弈中的朴素自博弈在非传递博弈里可能陷入循环。正则化自博弈用单个网络稳定训练，但只和自己对局，因此会遗忘早先的对手，也无法利用外部对手；对手池方法保留了对手池，但均衡存放在池上的混合里，PFSP 等启发式加权也没有收敛保证。本文提出 Coupled Dual-Adversarial Regularized self-play（\codar{}）。每一轮，\codar{} 先用一个锚定在纯自博弈上的欧氏投影确定池权重，使得只有当前能击败最新策略（下称 latest）的对手才获得权重，再针对由此得到的混合对手做一步近端策略更新。两步的耦合给出一条能量不等式，把每一步策略移动和每一单位池权重都记在到纳什均衡的剩余距离上。对精确算法，由此得到：无论 oracle 对手如何入池或退出，latest 都 last-iterate 收敛到纳什均衡；同时还有可在训练中计算的证书，以及所有界的容错版本。在 OpenSpiel 的同预算对比中，\codar{} 的 latest 网络在 Goofspiel(4) 上把末段 exploitability 从 \rnad{} 的 0.797 降到 0.083，与 PSRO 多网络混合相当；在 Leduc 扑克上，把对偶强度按收益范围放大并使用精确最佳响应 oracle 后，其末段 exploitability 约为 \rnad{} 的一半；在 Liar's Dice 上两者持平。
+\end{abstract}
+
+% ======================================================================
+\section{引言}
+% ======================================================================
+
+双人零和博弈是对抗性决策最基本的模型。棋类、扑克与即时战略游戏是它最直观的实例\citep{silver2018alphazero,brown2018libratus,vinyals2019alphastar,perolat2022stratego}，生成对抗网络与鲁棒优化的训练目标也可以写成 min--max 问题\citep{goodfellow2014gan,daskalakis2018optimism}。这类问题的自然目标是纳什策略。获取它的常用办法是自博弈，即让当前策略与自己或自己的历史版本对局并用强化学习更新，既不需要人类数据，也不需要显式建模对手。
+
+然而自博弈有一个众所周知的失败模式。真实博弈普遍带有非传递成分\citep{czarnecki2020spinning}，只针对当前最强对手更新的朴素自博弈会在剪刀石头布式的循环里打转，无法收敛\citep{balduzzi2018mechanics,balduzzi2019openended}。实践中有两类应对，但它们各自都存在一些遗憾。正则化自博弈（R-NaD、MMD）在收益或策略空间加入一个周期移动的锚，把循环动力学变成向正则化均衡的收缩，保证落在单个网络上\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}。代价是它只和自己对局，脚本对手、专门克制当前策略的 exploiter 和历史快照都无法接入，训练轨迹之外的漏洞既不会被发现，也不会被修补，早先见过的策略也容易被遗忘\citep{openai2019dota,bansal2018emergent}。对手池方法（Double Oracle、PSRO、PFSP 与联赛训练）保留了历史对手\citep{mcmahan2003doubleoracle,lanctot2017psro,vinyals2019alphastar}，但均衡存放在池权重或元博弈解里，可部署的是多网络混合或另外学习的平均网络，正在训练的那个网络本身没有保证。按胜率或累计分数分配采样比例的启发式权重（PFSP、OpenAI Five 的采样器）几乎都没有收敛证明。
+
+本文提出 Coupled Dual-Adversarial Regularized self-play（\codar{}）。它的池权重是一个与当前策略（下称 latest）对抗的对偶变量，两步更新耦合成一条能量不等式，把 latest 的移动量与池持有的权重都从 latest 到纳什均衡的距离平方中扣除（\S\ref{sec:alg}）。这个距离有限，所以两者都必须趋于零，而策略不再移动、池又不持有权重时，latest 只能是全博弈的纳什策略，无论 exploiter 是否找到全部漏洞，也无论池如何增删。这正是两类方法都覆盖不了的场景，例如对手只能以黑盒方式对局（脚本对手、exploiter、其他架构的旧版智能体），单局太长或太贵而无法对大池做穷举评估，池在训练中在线变化，最终只部署一个网络。PSRO 需要完整的 $N\times N$ 元博弈收益矩阵并部署混合，而 \codar{} 只需要 latest 对各成员的 $N$ 个败率，并且可以直接从训练对局中估计；R-NaD 类方法根本无法使用这些对手，PFSP 能用但没有保证。我们的新颖之处在于对偶规则，它把池权重锚定在纯自博弈上，从而让开放的池与单网络的 last-iterate 收敛得以共存。
+
+\codar{} 源于我们内部的前身 \coda{}，它的对偶锚随训练移动，在池所定义的限制博弈中以 $O(1/K)$ 的速率收敛（\S\ref{sec:coda}）。然而一旦 oracle 漏掉某个漏洞，latest 就可能停在对池的最佳响应上，而这个策略很容易被池外对手击败。把 latest 自己放进池看似能补上这一点，但权重会流向这个败率恒为 $\tfrac12$ 的成员，移动锚又把权重保留下来，把 latest 钉在非纳什点上（命题~\ref{prop:rps}）。\codar{} 把移动锚挪到原侧，对偶锚固定在纯自博弈位置，上面的能量不等式正是来自这一交换。本文的贡献如下。
+\begin{itemize}
+\item \textbf{算法。}据我们所知，\codar{} 是第一个既能接纳任意外部对手（脚本对手、exploiter、历史快照），又能保证所训练的策略本身在 last-iterate 意义下收敛到纳什均衡的自博弈方法（精确更新、正规形博弈）。已有的池方法只保证混合或时间平均，正则化自博弈则无法接入外部对手。它只需要与每个对手的对局结果，因此任何能对局的智能体都可以入池；除一个近端奖励项外，它包装的是未经修改的 PPO 学习器（\S\ref{sec:alg}）。
+\item \textbf{理论。}一条能量不等式（定理~\ref{thm:energy}）把策略移动与池权重都记在到纳什均衡的距离上，因此池只有在换来向纳什均衡的进展时才能持有权重。由它可以得到所训练策略的 last-iterate 收敛，并且在池不再变化后有显式的 $O(K^{-1/4})$ last-iterate 速率，另有在线证书与容错版本，对任意入池序列与任意 oracle 都成立（\S\ref{sec:theory}）。
+\item \textbf{实验。}有限维实验约 370 万条逐步记录中没有一次不等式违反。在 OpenSpiel 的同预算对比中，\codar{} 的 latest 单网络在 Goofspiel(4) 上把 \rnad{} 的末段 exploitability 降低近十倍，4 个 seed 全部更优，与 PSRO 多网络混合相当；换用精确最佳响应（BR）oracle 后，Leduc 上也降低了约一半。我们同时报告了收益依赖 oracle 强度与收益尺度的条件（\S\ref{sec:exp}）。
+\end{itemize}
+
+% ======================================================================
+\section{相关工作与预备知识}
+\label{sec:prelim}
+% ======================================================================
+
+\subsection{相关工作}
+\label{sec:related}
+
+\textbf{对手池方法。}Double Oracle 与 PSRO\citep{mcmahan2003doubleoracle,lanctot2017psro,muller2020generalized,mcaleer2020pipeline}在外部求解元博弈\citep{wellman2006egta}，PFSP 与联赛训练\citep{vinyals2019alphastar}按胜率分配采样比例，NFSP\citep{heinrich2015fsp,heinrich2016nfsp}用一个单独的网络学习历史平均策略；它们部署的都是多个 checkpoint 的混合或平均网络。
+
+\textbf{正则化自博弈。}R-NaD 与 MMD\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}在收益或策略空间放一个周期移动或随时间退火的锚点，乐观与外梯度方法\citep{daskalakis2018optimism,mertikopoulos2019omd,nemirovski2004prox,cen2021extragradient}用外推项起类似的稳定作用，二者都可以看作近端点法\citep{rockafellar1976ppa}的显式近似\citep{mokhtari2020ppa}。它们给出单网络的收敛保证，但训练只沿自博弈轨迹推进，这也是 OpenAI Five 与 AlphaStar 额外保留历史对手的原因\citep{openai2019dota,vinyals2019alphastar,czarnecki2020spinning}。
+
+\textbf{乘性权重与沉睡成员。}PSRO 一族的元求解器（Hedge、投影复制子动力学、MWU）与 OpenAI Five 的对手采样器多用乘性权重\citep{lanctot2017psro,mcaleer2022anytime,dinh2022odo,openai2019dota,freund1999hedge}，而乘性权重会累计历史，一个成员被压制 $T$ 轮后，即使重新开始克制 latest，也要再赢大约 $T$ 轮才能拿回权重。我们称之为\emph{沉睡}（sleeper）问题，在线学习中的 Fixed Share 类算法正是为此提出的\citep{herbster1998tracking}。反过来，打平的成员会一直保留正权重。部署时间平均的方法不受影响，但乘性权重在零和博弈中的 last-iterate 本身不收敛\citep{bailey2018mwu}，打平而不归零的成员还可能把 latest 钉在非纳什点上（命题~\ref{prop:rps}）。我们认为，这是现有池方法无法兼顾收敛证明与单网络收敛的重要原因。\codar{} 的对偶侧因此改用无状态的欧氏投影。附录表~\ref{tab:related} 给出与主流方法的对照。
+
+\subsection{预备知识}
+
+在下文中除非另有说明，$\|\cdot\|$ 均为欧氏（$L_2$）范数。
+
+考虑有限零和博弈，每局随机决定座位，因此博弈对两名玩家是对称的。玩家有 $M$ 条纯策略，混合策略空间 $X=\simplex_M$。序贯博弈可以按纯策略展开成这种形式，理论分析在这一理想化层面进行，神经实现与它的差距归入 \S\ref{sec:inexact} 的误差项。记 $\ell(\bx;\by)\in[0,1]$ 为策略 $\bx$ 对上 $\by$ 的期望败率。对称性给出 $\ell(\bx;\by)+\ell(\by;\bx)=1$，故存在反对称矩阵 $S=-S^\top$ 使
+\[
+\ell(\bx;\by)=\tfrac12+\bx^\top S\by,\qquad \bx^\top S\bx=0 .
+\]
+对冻结对手 $\by_i$ 记 $\ell_i(\bx):=\ell(\bx;\by_i)$，它是 $\bx$ 的仿射函数，梯度为常向量 $S\by_i$。策略质量用可利用度衡量，
+\[
+\Expl(\bx):=\max_{\by\in X}\ell(\bx;\by)-\tfrac12=\max_j(S^\top \bx)_j\ \ge\ 0 ,
+\]
+纳什策略满足 $\Expl(\bx_N)=0$，由 minimax 定理存在\citep{vonneumann1928}，并且
+\begin{equation}
+\bx_N\ \text{是纳什}\iff \bx_N^\top S\by\le0\ \ \forall \by\in X\iff \by^\top S\bx_N\ge0\ \ \forall \by\in X .
+\label{eq:nash}
+\end{equation}
+$\Proj_C$ 表示到闭凸集 $C$ 的欧氏投影。全文反复使用投影的变分刻画（下称钝角原理）
+\begin{equation}
+\bw=\Proj_C(\bv)\iff(\bv-\bw)^\top(\bu-\bw)\le0\quad\forall \bu\in C ,
+\label{eq:obtuse}
+\end{equation}
+以及由它推出的单调性与非扩张性\citep{bauschke2011convex}。单纯形的直径为 $D=\sqrt2$。到单纯形的投影可以用 $O(N\log N)$ 的阈值算法计算，低于阈值的分量恰为零\citep{duchi2008projection}。
+
+% ======================================================================
+\section{\coda{}：限制博弈中的移动对偶锚}
+\label{sec:coda}
+% ======================================================================
+
+\coda{} 求解的是\emph{限制博弈}。固定对手池 $P=\{\by_1,\dots,\by_N\}$，记 $\bell(\bx):=(\ell_1(\bx),\dots,\ell_N(\bx))$。池与 latest 之间的限制博弈是 $\min_{\bx\in X}\max_{\brho\in\simplex_N}\brho^\top\bell(\bx)$，其值记为 $v^*$。对偶函数 $\varphi(\brho):=\min_\bx\brho^\top\bell(\bx)$ 是凹的，且 $v^*=\max_\brho\varphi(\brho)$。\coda{} 的一步以对偶锚 $\brho_k\in\simplex_N$ 为参数，求正则化鞍点
+\begin{equation}
+(\bx_{k+1},\bw_{k+1})\in\operatorname*{saddle}_{\bx\in X,\ \brho\in\simplex_N}\Big[\brho^\top\bell(\bx)-\tfrac1{2c}\|\brho-\brho_k\|^2\Big],\qquad \brho_{k+1}:=\bw_{k+1}.
+\label{eq:coda}
+\end{equation}
+给定 $\bx$，由配方法，对偶侧的解是闭式 $\Proj_{\simplex_N}(\brho_k+c\,\bell(\bx))$，即败率高的对手获得权重、低于阈值的对手权重恰为零的采样规则。$\bx_{k+1}$ 是对 $\bw_{k+1}$ 的最佳响应。
+
+\begin{proposition}[\coda{} 在限制博弈中收敛]
+\label{prop:coda}
+对固定池与精确步 \eqref{eq:coda}，$\varphi(\brho_{k+1})\ge\varphi(\brho_k)+\tfrac1{2c}\|\brho_{k+1}-\brho_k\|^2$，从而 $\sum_k\|\brho_{k+1}-\brho_k\|^2\le2c$。此外
+\[
+\max_{i\in P}\ell_i(\bx_{k+1})-v^*\ \le\ \frac{\sqrt2}{c}\,\|\brho_{k+1}-\brho_k\|\ \longrightarrow\ 0 ,\qquad v^*-\varphi(\brho_K)\ \le\ \frac{1}{cK} .
+\]
+\end{proposition}
+证明见附录~\ref{app:coda}。
+
+\subsection{镜像臂为何破坏 \coda{}}
+\label{sec:coda-break}
+
+命题~\ref{prop:coda} 的保证只针对限制博弈。若 oracle 没有找到全部漏洞，latest 对池的最佳响应可能是一个池外对手很容易击败的策略。一个直接的补救是把 latest 自己也放进池，我们称之为\emph{镜像臂} $m$。它是第 $N+1$ 个成员，由于任何策略对自己的败率恒为 $\tfrac12$，增广败率为
+\[
+\aug(\bx):=\big(\ell_1(\bx),\dots,\ell_N(\bx),\tfrac12\big).
+\]
+
+镜像臂会破坏命题~\ref{prop:coda} 的论证。原侧之所以被推向限制博弈的解，是因为加权败率 $\brho^\top\bell(\bx)$ 对 $\bx$ 的梯度非零，而镜像坐标恒为 $\tfrac12$，与 $\bx$ 无关。其余成员被压到接近打平后，镜像臂成为败率最高的成员，对偶侧把权重转给它，加权目标中对 $\bx$ 有梯度的部分随之消失。移动锚还会保留此前积累的池权重。败率全部打平时 $c\,\aug(\bx)$ 是常向量，而 $\Proj_\simplex(\brho+c\aug)=\brho$，这些权重不会退出，并且可能恰好抵消自博弈场。下面给出一个精确的例子。
+
+\begin{proposition}[移动锚的不动点反例]
+\label{prop:rps}
+剪刀石头布 $S=\tfrac12\begin{psmallmatrix}0&-1&1\\1&0&-1\\-1&1&0\end{psmallmatrix}$，取 $\bx=\be_1$，$P=\{\by\}$，$\by=(0,\tfrac12,\tfrac12)$，对偶锚 $\brho=(\tfrac23,\tfrac13)$，自博弈份额 $\lambda=\tfrac13$。则对偶侧与原侧残差同时为零，但 $\Expl(\be_1)=\tfrac12$。
+\end{proposition}
+验证见附录~\ref{app:rps}。这里的均衡 $\tfrac13\be_1+\tfrac23\by$ 由池与 latest 共同承载，latest 自己并不是纳什策略。更一般地，任一纳什策略 $\bq^*$ 只要能分解为 $w_m\bx+\sum_iw_i\by_i$，且正权重成员对 $\bx$ 恰好打平，就构成同类的不动点。
+
+% ======================================================================
+\section{\codar{}：把移动锚挪到原侧}
+\label{sec:alg}
+% ======================================================================
+
+\begin{algorithm}[t]
+\caption{\codar{} 的一步（PPO 实现中的近似见附录~\ref{app:extra}）}
+\label{alg:codar}
+\begin{algorithmic}[1]
+\Require latest $\bx_k$、对手池 $P=\{\by_1,\dots,\by_N\}$、对偶强度 $c$、近端强度 $\eta$
+\State $\aug(\bx)\leftarrow\big(\ell_1(\bx),\dots,\ell_N(\bx),\tfrac12\big)$ \Comment{latest 的败率；镜像臂为 $\tfrac12$}
+\State $\bw\leftarrow\Proj_{\simplex_{N+1}}\big(\be_m+c\,\aug(\bx)\big)$ \Comment{对偶侧，决定和谁对局}
+\State 以份额 1 与自己、以份额 $w_i$ 与各 $\by_i$ 对局训练 latest，并拉向 $\bx_k$ \Comment{原侧（\S\ref{sec:share}）}
+\State $\bx_k\leftarrow\bx_{k+1}$ \Comment{移动锚}
+\State （可选）冻结 latest，训练一个 exploiter 并加入 $P$
+\end{algorithmic}
+\end{algorithm}
+
+\codar{} 维护 latest 策略 $\bx_k$ 与冻结的对手池 $P$，算法~\ref{alg:codar} 列出了一步的流程。对偶侧只给正在赢 latest 的成员按领先幅度分配权重，其余留给镜像臂；原侧再让 latest 对得到的混合做一步近端更新。精确算法中第 1--3 行都在新策略 $\bx_{k+1}$ 处取值，即更新是隐式的。与 \coda{} 不同，对偶锚固定在纯自博弈位置 $\be_m:=(0,\dots,0,1)$，移动锚则像 R-NaD 与 MMD 中那样放在原侧的近端项里。下面三小节说明这样设计的原因。
+
+\subsection{对偶侧：固定锚上的正则化最大化}
+\label{sec:dual}
+
+锚之所以可以固定，是因为求解对象变了。\coda{} 求限制博弈的鞍点，锚必须移动才能追上事先未知的均衡对偶点。\codar{} 求全博弈的纳什策略，而 latest 一旦成为纳什策略就没有对手能赢它，此时正确的对偶权重就是事先已知的 $\be_m$。
+
+记 $c>0$ 为对偶强度，训练中固定不变。给定策略 $\bx$，对偶侧求解一个带二次正则的最大化问题，其解恰好是上面的投影：
+\begin{equation}
+\bw(\bx):=\operatorname*{arg\,max}_{\bw\in\simplex_{N+1}}\Big[\bw^\top\aug(\bx)-\frac1{2c}\|\bw-\be_m\|^2\Big]=\Proj_{\simplex_{N+1}}\big(\be_m+c\,\aug(\bx)\big),
+\label{eq:dual}
+\end{equation}
+第二个等号由配方法得到。方括号中第一项把权重压向败率高的对手，第二项把权重拉回纯自博弈，$c$ 越大拉力越弱。记 $\bw_P$ 为池坐标（前 $N$ 个分量），$w_m$ 为镜像权重。由于锚固定，$\bw(\bx)$ 是 $\bx$ 的闭式连续函数，没有需要积分或记忆的状态，这也是新成员入池不需要初始化的原因。由钝角原理可以直接得到它的三条性质。
+
+\begin{lemma}[对偶规则的性质]
+\label{lem:dual}
+(a) $\bw(\bx)=\be_m$ 当且仅当 $\max_{i\in P}\ell_i(\bx)\le\tfrac12$。\\
+(b) 持有权重的成员必须正在赢 latest：
+\[
+w_i(\bx)>0\ \Longrightarrow\ \ell_i(\bx)-\tfrac12\ \ge\ \frac{1-w_m(\bx)+w_i(\bx)}{c}\ >\ 0 .
+\]
+(c) 若池中只有一个成员且 $\ell_1(\bx)=\tfrac12+\mu$，则 $w_1(\bx)=\operatorname{clip}(\tfrac{c\mu}{2},0,1)$。
+\end{lemma}
+证明见附录~\ref{app:dual}。(a) 说没有成员赢 latest 时权重全部留给自博弈，这一步就恰好是近端自博弈，即 R-NaD 与 MMD 的骨架；\codar{} 只在有对手正在赢 latest 时才偏离正则化自博弈。(b) 说权重越大的成员领先越多。(c) 是 \S\ref{sec:exp-vuln} 中直接检验的闭式。
+
+\subsection{原侧：隐式的近端最佳响应}
+\label{sec:primal}
+
+给定锚 $\bx_k$ 与近端强度 $\eta>0$，先把对手混合暂时固定为份额 1 的自博弈对手 $\bar{\by}$ 与权重为 $\bw$ 的池成员。原侧求带近端项的最佳响应，即最小化
+\begin{equation}
+f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i\in P}w_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_k\|^2,\qquad \bx\in X .
+\label{eq:primal-obj}
+\end{equation}
+前两项是对混合对手的加权败率，镜像臂对原侧的作用全部由第一项承担；第三项把策略拉向锚。记 $A:=[S\by_1\cdots S\by_N]\in\mathbb R^{M\times N}$，前两项的梯度是常向量 $S\bar{\by}+A\bw_P$，所以 $f_k$ 与 \eqref{eq:dual} 形状相同，是线性项加二次正则，由配方法其最小点是 $\Proj_X\big(\bx_k-\tfrac1\eta[S\bar{\by}+A\bw_P]\big)$。精确算法要求对手混合在解本身处取值，即 $\bar{\by}=\bx_{k+1}$、$\bw=\bw(\bx_{k+1})$，于是原侧更新为
+\begin{equation}
+\bx_{k+1}=\Proj_X\Big(\bx_k-\tfrac1\eta\big[S\bx_{k+1}+A\,\bw(\bx_{k+1})_P\big]\Big),
+\label{eq:primal}
+\end{equation}
+即从锚出发，沿降低加权败率的方向走 $1/\eta$ 的步长再投影回 $X$。未知量同时出现在等号两边，所以这是一步隐式更新。由钝角原理，\eqref{eq:primal} 等价于变分不等式
+\begin{equation}
+\big\langle S\bx_{k+1}+A\,\bw(\bx_{k+1})_P+\eta(\bx_{k+1}-\bx_k),\ \bx'-\bx_{k+1}\big\rangle\ \ge\ 0\qquad\forall \bx'\in X ,
+\tag{P}
+\label{eq:P}
+\end{equation}
+三项依次是取 $\bar{\by}=\bx_{k+1}$、$\bw=\bw(\bx_{k+1})$ 后 \eqref{eq:primal-obj} 中三项在 $\bx_{k+1}$ 处的梯度。后文的证明都是在 \eqref{eq:P} 中代入一个合适的测试点 $\bx'$。记合成对手及其总质量为
+\[
+\bv_{k+1}:=\bx_{k+1}+\textstyle\sum_iw_i(\bx_{k+1})\,\by_i,\qquad t_k:=2-w_m(\bx_{k+1})\ \ge\ 1,
+\]
+则 $S\bv_{k+1}$ 恰好是 \eqref{eq:P} 的前两项，\eqref{eq:P} 可以读作 latest 对混合对手 $\bv_{k+1}$ 做近端最佳响应。更新必须是隐式的。引理~\ref{lem:B} 要求对偶权重与自博弈对手在同一点 $\bx_{k+1}$ 取值；若对手取旧快照 $\bx_k$，得到的显式更新在反对称场上会离开纳什点，并且不再收敛（附录图~\ref{fig:theory-mech} 中栏）。对任意锚与任意池，\eqref{eq:P} 有且只有一个解（附录~\ref{app:unique} 的命题~\ref{prop:unique}）。
+
+\subsection{自博弈份额与对手采样}
+\label{sec:share}
+
+自博弈对手每一步都以份额 1 进入 \eqref{eq:P}，所以合成对手 $\bv_{k+1}$ 的质量始终满足 $t_k\ge1$。另外两种取法必须排除。份额取 0 时，池权重归零后原侧场为零，任何 $\bx$ 都是不动点。份额取本步的镜像权重 $w_m(\bx_{k+1})$ 时，自博弈项 $w_m(\bx)S\bx$ 对 $\bx$ 不再反对称，命题~\ref{prop:unique} 所需的单调性不再成立。
+
+份额是原侧目标的系数，不是采样概率。实现时可以按任意分布 $\br$ 在各臂之间抽对手，再给每局乘上所在臂的重要性比（自博弈为 $1/r_m$，成员 $i$ 为 $w_i/r_i$），期望更新恰好是 \eqref{eq:P} 的场；$\br$ 只影响采样噪声和各成员败率估计分到的局数，前者进入 $\delta_k$，后者进入 $e_k$（\S\ref{sec:inexact}）。我们直接按对偶权重 $\br\propto(\bw_P,w_m)$ 抽对手，并给自博弈臂设一个下限以限制其重要性比。若按场的比例 $\br=(\bw_P,1)/t_k$ 采样，池分到的对局份额被压在 $(1-w_m)/(2-w_m)\le\tfrac12$ 以下，正好饿着那些持有权重的成员的败率估计。
+
+% ======================================================================
+\section{理论分析}
+\label{sec:theory}
+% ======================================================================
+
+本节结论对精确步成立，池 $P_k$ 每步可以任意变化。固定一步 $k$，简记 $\bx:=\bx_{k+1}$，$\bw:=\bw(\bx)$，$\bv:=\bv_{k+1}$，$\dx_k:=\bx_{k+1}-\bx_k$，并定义池总权重 $a$ 与池压力 $b$：
+\[
+a(\bx):=1-w_m=\textstyle\sum_{i\in P}w_i,\qquad
+b(\bx):=\textstyle\sum_{i\in P}w_i\big(\ell_i(\bx)-\tfrac12\big).
+\]
+由引理~\ref{lem:dual}(b)，持权成员都有 $\ell_i>\tfrac12$，故 $b\ge0$。直接展开得两个恒等式：
+\begin{equation}
+\bx^\top S\bv=\underbrace{\bx^\top S\bx}_{=0}+\textstyle\sum_iw_i\,\bx^\top S\by_i=b(\bx),\qquad
+\bw^\top\aug(\bx)=\textstyle\sum_iw_i\ell_i(\bx)+\tfrac12w_m=b(\bx)+\tfrac12 .
+\label{eq:identities}
+\end{equation}
+
+\subsection{共享能量预算}
+
+\begin{lemma}[池权重必须有当前收益支撑]
+\label{lem:A}
+\[
+b(\bx)\ \ge\ \frac1c\,\|\bw(\bx)-\be_m\|^2 .
+\]
+\end{lemma}
+证明（附录~\ref{app:lemmas}）在 \eqref{eq:dual} 上用钝角原理，测试点取锚 $\be_m$ 本身。直白地说，池能持有多少权重，取决于它当前赢 latest 多少。移动锚恰好在这一步失效。换成移动锚 $\brho_k$ 做同样的推导只能得到
+\[
+b\ \ge\ -\tfrac1c\,(\bw-\brho_k)^\top(\be_m-\bw),
+\]
+右端可以为零甚至为负，打平的池（$b=0$）仍能保有权重。固定锚把右端换成平方项，打平的池不能保有任何权重，命题~\ref{prop:rps} 的整族不动点因此被排除。
+
+\begin{lemma}[以纳什策略为测试点]
+\label{lem:B}
+对任一纳什策略 $\bx_N$，
+\[
+\eta\,\dx_k^\top(\bx_N-\bx_{k+1})\ \ge\ b(\bx_{k+1}).
+\]
+\end{lemma}
+证明（附录~\ref{app:lemmas}）在 \eqref{eq:P} 中取 $\bx'=\bx_N$，并利用任何对手混合（包括 $\bv_{k+1}$）都赢不了纳什策略。直白地说，池从 latest 身上拿到的收益，必然体现为一步朝向 $\bx_N$ 的移动。
+
+\begin{theorem}[共享能量预算]
+\label{thm:energy}
+对任意步 $k$、任意池 $P_k$ 与任一纳什 $\bx_N$，
+\begin{equation}
+\|\bx_{k+1}-\bx_N\|^2+\|\bx_{k+1}-\bx_k\|^2+\frac{2}{c\eta}\|\bw(\bx_{k+1})-\be_m\|^2\ \le\ \|\bx_k-\bx_N\|^2 .
+\label{eq:energy}
+\end{equation}
+\end{theorem}
+证明只需两行（附录~\ref{app:lemmas}），即用极化恒等式展开 $\|\bx_k-\bx_N\|^2$，再把交叉项 $2\dx_k^\top(\bx_N-\bx_{k+1})$ 先由引理~\ref{lem:B} 下界为 $\tfrac2\eta b$，再由引理~\ref{lem:A} 下界为 $\tfrac{2}{c\eta}\|\bw-\be_m\|^2$。右端是这一步之前到纳什的距离平方，也就是剩余预算。左端第一项是这一步之后的剩余预算，另外两项是这一步的两种消耗，即策略移动与池持有权重。
+
+\begin{corollary}[可和、趋零，且对入池成立]
+\label{cor:sum}
+对 $k<K$ 望远镜求和，
+\[
+\textstyle\sum_{k<K}\|\dx_k\|^2\le\|\bx_0-\bx_N\|^2\le2,\qquad
+\sum_{k<K}\|\bw(\bx_{k+1})-\be_m\|^2\le\tfrac{c\eta}2\|\bx_0-\bx_N\|^2\le c\eta ,
+\]
+于是 $\dx_k\to0$，$\bw(\bx_{k+1})\to \be_m$，$a(\bx_{k+1})\le\|\bw(\bx_{k+1})-\be_m\|\to0$。由于 \eqref{eq:energy} 只涉及 $\bx_k$、$\bx_{k+1}$、$\bw(\bx_{k+1})$ 与全博弈的纳什策略 $\bx_N$，池在步与步之间的任意增删（包括所有 oracle 入池）都不改变任一步的不等式，上述结论对整个训练过程成立。
+\end{corollary}
+
+\subsection{可测证书、收敛与速率}
+
+我们把只含可观测量的可利用度上界称为\emph{证书}。
+
+\begin{theorem}[两条证书]
+\label{thm:cert}
+记 $D=\sqrt2$。(i) latest 的全博弈证书：
+\[
+\Expl(\bx_{k+1})\ \le\ \tfrac12a(\bx_{k+1})-b(\bx_{k+1})+\eta D\|\dx_k\|\ \le\ \tfrac12a(\bx_{k+1})+\eta D\|\dx_k\| .
+\]
+(ii) 池内证书：
+\[
+\Big[\max_{i\in P}\ell_i(\bx_{k+1})-\tfrac12\Big]^+\ \le\ \frac{\sqrt2}{c}\,\|\bw(\bx_{k+1})-\be_m\|+\eta D\|\dx_k\| .
+\]
+\end{theorem}
+证明见附录~\ref{app:cert}。两条证书的右端只含池权重 $a$、到纯自博弈的距离 $\|\bw-\be_m\|$ 与原侧残差 $\|\dx\|$，都可以在训练中计算，并且对任何 oracle 都成立。
+
+\begin{theorem}[latest 收敛到纳什]
+\label{thm:conv}
+精确步、$P_k$ 任意，则 $\Expl(\bx_k)\to0$，且整列 $\bx_k$ 收敛到某个纳什策略。
+\end{theorem}
+证明见附录~\ref{app:lemmas}。预算让池权重和残差都趋于零，于是证书 (i) 让可利用度趋于零；再以任一极限点为参照点使用能量不等式，就得到整列收敛。
+由于无论 exploiter 如何入池或退出，收敛都成立，任何 oracle，无论多便宜、多启发式，都可以放心接入，并带来速度与可见性。自博弈只能暴露 latest 自己能找到的弱点，只有远处的策略才能利用、或藏在很少到达的分支上的弱点修补得很慢；exploiter 直接瞄准它们，其领先幅度立刻变成池权重。修补过的漏洞若重新出现，会立即重新获得权重，没有沉睡延迟；每个 exploiter 实测的领先幅度还给出 latest 可利用度的一个有保证的下界，而在大博弈中全树最佳响应无法提供这样的估计（附录~\ref{app:oracle}）。
+
+\begin{theorem}[latest 的 best-iterate 与 last-iterate 速率]
+\label{thm:rate}
+\[
+\text{(i)}\ \ \min_{k<K}\Expl(\bx_{k+1})\le\frac{\sqrt{c\eta}/2+2\eta}{\sqrt K},\qquad
+\text{(ii)}\ \ \Expl(\bx_K)\le\sqrt{c\eta/2}\;n^{-1/4}+2\eta\,n^{-1/2},
+\]
+其中 (ii) 在步 $K$ 之前的 $n$ 步内池不变时成立。
+\end{theorem}
+证明见附录~\ref{app:rate}。因此池不再变化后，所训练的策略本身具有 $O(K^{-1/4})$ 的 last-iterate 速率；对手的混合也收敛（命题~\ref{prop:mix}）。
+
+\subsection{带误差的版本}
+\label{sec:inexact}
+
+实现会引入两类误差。对偶侧用估计 $\hat{\bell}_k$ 代替 $\aug(\hat \bx_{k+1})$，满足 $\|\hat{\bell}_k-\aug(\hat \bx_{k+1})\|_\infty\le e_k$，实际权重为 $\bw_{k+1}=\Proj_\simplex(\be_m+c\hat{\bell}_k)$。原侧的解 $\hat \bx_{k+1}$ 只以 $-\delta_k$ 的松弛满足 \eqref{eq:P}。
+\begin{theorem}[带误差的能量式与证书]
+\label{thm:inexact}
+记 $a=a_{k+1}$ 按实际权重计算。能量式变为
+\[
+\|\hat \bx_{k+1}-\bx_N\|^2+\|\dx_k\|^2+\tfrac{2}{c\eta}\|\bw_{k+1}-\be_m\|^2\ \le\ \|\bx_k-\bx_N\|^2+\tfrac2\eta(\delta_k+a\,e_k),
+\]
+定理~\ref{thm:cert} 的两条证书变为
+\begin{align*}
+\Expl(\hat \bx_{k+1})&\ \le\ \tfrac12a+\eta D\|\dx_k\|+\delta_k+ae_k,\\
+\Big[\max_{i\in P}\ell_i(\hat \bx_{k+1})-\tfrac12\Big]^+&\ \le\ \tfrac{\sqrt2}{c}\|\bw_{k+1}-\be_m\|+\eta D\|\dx_k\|+\delta_k+2e_k.
+\end{align*}
+\end{theorem}
+证明见附录~\ref{app:inexact}。误差可和时，全部收敛结论保留；误差恒定时只能得到每步花费最小值的 $O(1/K+(\delta+e)/\eta)$ 界，不能说明迭代最终留在邻域内（附录~\ref{app:inexact}）。估计误差在能量式与 latest 证书中只以 $a\,e_k$ 的形式出现，所以越接近收敛、池越空，估计误差的影响就越小。
+
+% ======================================================================
+\section{实验}
+\label{sec:exp}
+% ======================================================================
+
+\subsection{有限维验证}
+\label{sec:exp-theory}
+
+我们在随机反对称矩阵博弈上运行精确算法（纯策略数最多 64，每格 1024 步），逐步检查第~\ref{sec:theory} 节的每一条不等式。九组实验共 3830 格，其中 2880 格注入了估计误差与求解误差。正式格子约 370 万条逐步记录中没有一次违反（附录图~\ref{fig:theory-cert}），最终 $\Expl(\bx_K)$ 在 $10^{-12}$ 到 $10^{-5}$ 之间，池权重全部归零。作为对照，我们故意破坏了三个机制（移动对偶锚、用上一步的快照作镜像对手、原侧冻结旧池系数），三组对照各造成数千次能量式违反，说明检查能够分辨错误的算法。附录图~\ref{fig:theory-mech} 显示，从命题~\ref{prop:rps} 的反例点出发，固定锚几步之内收敛而移动锚停在 $\Expl=0.5$，显式镜像与 $\lambda\equiv0$ 都不收敛。
+
+\subsection{同预算神经实验}
+\label{sec:exp-neural}
+\label{sec:exp-e1}
+
+我们在 PPO\citep{schulman2017ppo} 上实现 \codar{}，把 \S\ref{sec:alg} 中的每个精确对象换成可运行的近似，误差归入 $e_k$ 或 $\delta_k$（细节见附录~\ref{app:extra}），并在 OpenSpiel\citep{lanctot2019openspiel} 的 Leduc 扑克\citep{southey2005bayesbluff}、Goofspiel(4)\citep{ross1971goofspiel} 与 Liar's Dice（双方各一枚骰子）\citep{lisy2015oos} 上与 \rnad{} 和 PSRO 比较。所有 PPO 方法共用同一网络、同一组 PPO 超参和同一个 $\eta$，所以这是匹配参数下的机制比较，不是各自调优后的性能比较；各方法的预算都是 $B=5\times10^5$ 局，计入算法消耗的全部对局，包括 oracle 的对局。我们报告全树精确 exploitability（Leduc 以筹码为单位）在预算最后 20\% 内的均值 \texttt{tail\_mean} 与最大值 \texttt{tail\_worst}，统计量为 4 个 seed 的 IQM 与 bootstrap 95\% CI\citep{agarwal2021precipice}。\rnad{} 与 \codar{} 部署 latest 单网络，PSRO 部署多个网络的整局混合，两类部署对象不能直接互换。
+
+\begin{figure}[t]
+\begin{center}
+\includegraphics[width=0.9\linewidth]{figures/fig_e1_exploitability.pdf}
+\end{center}
+\vspace{-6pt}
+\caption{同算法性预算下的全树 exploitability（seed 均值 $\pm$ 95\% CI，灰色区域为预算最后 20\%）。PSRO 部署多网络混合，其余方法部署 latest 单网络。}
+\label{fig:e1}
+\end{figure}
+
+\begin{table}[t]
+\caption{同预算长程对照（IQM [95\% CI]，4 seeds）。L 为 latest 单网络，M 为多网络混合。$\Delta$ 为逐 seed 配对差（本方法 $-$ \rnad{}），括号内为更优的 seed 数。加粗为各博弈中单网络方法的最优值。}
+\label{tab:e1}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{2.3pt}
+\begin{tabular}{lcccc}
+\toprule
+方法 & 部署 & tail\_mean & tail\_worst & $\Delta$tail\_mean [CI] (wins) \\
+\midrule
+\multicolumn{5}{l}{\textit{Leduc}} \\
+\rnad{} & L & 0.980 [0.736, 1.684] & 1.224 [1.038, 2.163] & --- \\
+\codar{} PPO oracle, $c{=}48$ & L & 0.746 [0.646, 1.206] & 1.217 [0.913, 1.712] & $-0.284$ [$-0.938$, $+0.470$] (3/4) \\
+\codar{} exact-BR oracle, $c{=}48$ & L & \textbf{0.492} [0.400, 0.543] & \textbf{0.708} [0.569, 0.845] & $\bm{-0.508}$ [$-1.163$, $-0.273$] (4/4) \\
+PSRO, PPO BR & M & 0.656 [0.609, 0.783] & 0.735 [0.647, 0.877] & $-0.359$ [$-0.901$, $-0.057$] (4/4) \\
+\midrule
+\multicolumn{5}{l}{\textit{Goofspiel(4)}} \\
+\rnad{} & L & 0.797 [0.561, 0.953] & 0.901 [0.848, 0.994] & --- \\
+\codar{} PPO oracle & L & \textbf{0.083} [0.037, 0.227] & 0.488 [0.320, 0.595] & $-0.659$ [$-0.916$, $-0.446$] (4/4) \\
+\codar{} exact-BR oracle & L & 0.115 [0.090, 0.186] & \textbf{0.483} [0.424, 0.638] & $\bm{-0.692}$ [$-0.841$, $-0.375$] (4/4) \\
+PSRO, PPO BR & M & 0.072 [0.055, 0.126] & 0.095 [0.061, 0.181] & $-0.705$ [$-0.866$, $-0.506$] (4/4) \\
+\midrule
+\multicolumn{5}{l}{\textit{Liar's Dice}} \\
+\rnad{} & L & 0.259 [0.207, 0.274] & \textbf{0.309} [0.263, 0.406] & --- \\
+\codar{} PPO oracle & L & 0.265 [0.231, 0.280] & 0.333 [0.286, 0.350] & $\bm{-0.001}$ [$-0.028$, $+0.073$] (2/4) \\
+\codar{} no oracle & L & \textbf{0.256} [0.227, 0.348] & 0.342 [0.276, 0.382] & $+0.023$ [$-0.031$, $+0.074$] (2/4) \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+表~\ref{tab:e1} 与图~\ref{fig:e1} 给出主结果。\textbf{Goofspiel(4)。}\rnad{} 在约 $10^5$ 局时达到最低点，随后退化到 0.8--0.9，其策略熵在 $2\times10^5$ 局后降到 $10^{-4}$ 以下（附录图~\ref{fig:entropy}），策略几乎确定，因而被完全克制。\codar{} 的池正是在这一阶段获得权重，oracle 入池时对 latest 的平均增益为 0.13。\codar{} 的末段均值为 0.083，4 个 seed 全部优于 \rnad{}，尽管它的 learner 少打了约 14\% 的对局。同预算的 PSRO（PPO BR）混合为 0.072，与 \codar{} 相当，说明在这个博弈上起决定作用的是能否利用 oracle 揭示的漏洞（精确 BR 版 PSRO 不消耗对局，不参与成本比较，见附录表~\ref{tab:e1full}）。\codar{} 的 \texttt{tail\_worst} 为 0.49，原因是权重估计滞后于成员真实败率的跳变（附录~\ref{app:diag}）。\textbf{Liar's Dice。}三种方法的末段都在 0.25--0.27 之间，CI 完全重叠，oracle 入池增益的中位数只有 0.002。
+
+\textbf{Leduc 与对偶强度。}$c=6$ 时，收益尺度使 PPO exploiter 的领先幅度太小，拿不到池权重（末段 1.235，\rnad{} 为 0.980）。Leduc 的得分按筹码差归一到 $[0,1]$（跨度 26 筹码），0.8 筹码的可利用度只对应 0.03 的败率偏移，单成员闭式权重 $c\mu/2$ 不到 0.1。我们因此事先确定了一组只改变 $c$ 的实验（$c\in\{12,24,48\}$，两种 oracle，见附录表~\ref{tab:csweep}），两种 oracle 下 \texttt{tail\_mean} 的 IQM 都随 $c$ 增大而下降。$c=48$ 时，精确 BR 版末段为 0.492，4 个 seed 都优于 \rnad{}。PPO oracle 版为 0.746，3 个 seed 更优，但 CI 重叠，\texttt{at\_budget} 与 AUC 也和 \rnad{} 相同。这一版的 oracle 仍几乎没有找到漏洞，增大 $c$ 后多出的权重有多少来自估计噪声，现有数据无法区分。表~\ref{tab:e1} 中 Leduc 的 $c=48$ 与评估使用同一批 seed，应视为超参扫描的结果。
+
+\subsection{受控漏洞注入与消融}
+\label{sec:exp-vuln}
+\label{sec:exp-abl}
+
+\textbf{受控漏洞注入。}为检验池权重的退出是否对应真实收益的消失，我们在 Goofspiel(4) 上向同一个 \rnad{} 底座先后注入两个预先训练的攻击者 A 与 B，比较分别使用 EMA 估计与精确败率的两条 \codar{}、不接入攻击者的 \rnad{}，以及按固定比例混入攻击者的 fixed-mix（设置见附录~\ref{app:extra}）。两条 \codar{} 支路的 $w_A$ 与 $\ell(\bx;A)-\tfrac12$ 同步降到 0，$w_A<0.01$ 时 A 的真实领先最多为 0.011，散点也紧贴引理~\ref{lem:dual}(c) 的闭式。固定比例则是有害的。B 注入后 fixed-mix 过拟合了攻击者，末段 exploitability 升到 0.45，\rnad{} 为 0.23，两条 \codar{} 为 0.17 与 0.27，后三者的 CI 相互重叠。攻击者只能把败率推到 0.55 左右，所以这组实验无法比较修复速度。
+
+\textbf{消融。}在较短的运行中，$\eta$ 是最敏感的超参，池侧各项消融的差别都在 CI 以内。移动锚的 \coda{} 在 Kuhn 扑克\citep{kuhn1950poker}、Leduc 与 Goofspiel(4) 上的末段 exploitability 为 0.29、0.86 与 0.96，\codar{} 为 0.06、0.64 与 0.04（附录~\ref{app:extra}）。我们必须说明的是由于误差，证书在神经实现中并不可靠。\texttt{latest\_cert} 在 72 次 oracle 评估中有 63 次低于真值，用它选择 checkpoint 也不比取最后一个更好，因为 KL 代理不是定理中对应项的上界，exploiter 的差距 $\tau$ 也未知，所以在 PPO 实现中这些证书只能用于诊断。
+
+% ======================================================================
+\section{结论}
+% ======================================================================
+
+\codar{} 把移动锚放在原侧、对偶锚固定在纯自博弈位置，使策略移动与池权重共享同一份到纳什策略的距离预算，由此得到无论对手如何入池或退出都成立的单网络 last-iterate 收敛与可在训练中计算的证书。它因此兼有对手池方法的开放性与正则化自博弈的单网络保证，黑盒外部对手可以随时入池或退出，收敛始终由正在训练的那一个网络承载，实现上也只是 PPO 外面的一层包装。神经实验中，在合适的超参数下，\codar{} 在正则化自博弈容易坍缩并被克制的 Goofspiel(4) 上取得显著优势，以单个网络达到 PSRO 多网络混合的水平，在 Leduc 上也取得可观的优势，在 Liar's Dice 上与 \rnad{} 持平。理论目前只覆盖正规形博弈中的欧氏几何，KL 几何下的 Bregman 版本、$\delta_k$ 的端到端上界、跨越入池时刻的 last-iterate 速率以及向更大规模博弈的推广，是接下来的工作。
+
+\subsubsection*{可复现性声明}
+\S\ref{sec:coda}--\ref{sec:theory} 给出算法的全部定义，附录~\ref{app:proofs} 给出所有证明。匿名化的源码以 zip 形式作为补充材料提交，包括有限维求解器、PPO 实现、全部基线、实验入口与全部超参配置，以及生成全部图表的脚本。
+
+\subsubsection*{AI 使用声明}
+本工作使用生成式 AI 工具协助起草与润色论文文字、编写与重构实验代码、格式化参考文献、汇总实验日志生成图表。在研究内容上，AI 工具用于完善研究假设的表述、辅助推导与检查证明步骤，以及辅助解释实验结果。核心算法、定理陈述与研究设计由作者提出。我们没有使用生成式 AI 生成合成数据或伪造实验结果。所有 AI 辅助的代码经作者测试与类型检查，所有 AI 辅助的证明、解释与文字均经作者逐条人工审查。作者对本文全部内容负责。
+
+\bibliography{references}
+\bibliographystyle{iclr2027_conference}
+
+% ======================================================================
+\appendix
+\section{证明}
+\label{app:proofs}
+% ======================================================================
+
+除 minimax 定理与 Hartman--Stampacchia 定理外，所有证明只用到极化恒等式 $\|\bu+\bv\|^2=\|\bu\|^2+\|\bv\|^2+2\bu^\top\bv$、配方法和钝角原理 $\bw=\Proj_C(\bv)\iff(\bv-\bw)^\top(\bu-\bw)\le0\ \forall \bu\in C$ 这三件工具。由钝角原理还得到投影的单调性与非扩张性。对 $\bw=\Proj_C(\bz)$、$\bw'=\Proj_C(\bz')$，分别取 $\bu=\bw'$ 与 $\bu=\bw$ 相加得
+\begin{equation}
+(\bz-\bz')^\top(\bw-\bw')\ \ge\ \|\bw-\bw'\|^2\ \ge\ 0 .
+\label{eq:monotone}
+\end{equation}
+
+\subsection{命题~\ref{prop:coda}：\coda{} 在限制博弈中收敛}
+\label{app:coda}
+
+记 $L_k(\bx,\brho):=\brho^\top\bell(\bx)-\tfrac1{2c}\|\brho-\brho_k\|^2$。它对 $\bx$ 仿射、对 $\brho$ 强凹，$X$ 与 $\simplex_N$ 凸紧，由 \citet{sion1958} 的 minimax 定理，鞍点存在，且正则项与 $\bx$ 无关可提到 $\min_\bx$ 之外，
+\[
+\min_{\bx}\max_{\brho}L_k(\bx,\brho)=\max_{\brho}\Big[\min_\bx\brho^\top\bell(\bx)-\tfrac1{2c}\|\brho-\brho_k\|^2\Big]=\max_{\brho\in\simplex_N}\Big[\varphi(\brho)-\tfrac1{2c}\|\brho-\brho_k\|^2\Big].
+\]
+因此 $\brho_{k+1}=\bw_{k+1}$ 是凹函数 $\varphi$ 的近端点步，而鞍点性质给 $\bx_{k+1}\in\arg\min_\bx\bw_{k+1}^\top\bell(\bx)$。
+
+\textbf{单调爬升。}$\brho_{k+1}$ 是上述问题的最优解而 $\brho_k$ 可行，故
+\[
+\varphi(\brho_{k+1})-\tfrac1{2c}\|\brho_{k+1}-\brho_k\|^2\ \ge\ \varphi(\brho_k)-0 ,
+\]
+即命题中的第一式。
+
+\textbf{能量有限。}弱对偶给 $0\le\varphi(\brho)\le v^*\le1$。对第一式望远镜求和，
+\[
+\tfrac1{2c}\sum_{k<K}\|\brho_{k+1}-\brho_k\|^2\ \le\ \varphi(\brho_K)-\varphi(\brho_0)\ \le\ 1 ,
+\]
+故 $\sum_k\|\brho_{k+1}-\brho_k\|^2\le2c$，级数收敛，通项趋零。
+
+\textbf{池内证书。}给定 $\bx_{k+1}$，由配方法 $\brho_{k+1}=\Proj_{\simplex_N}(\brho_k+c\,\bell(\bx_{k+1}))$。钝角原理取 $\bu=\be_j$，$j\in\arg\max_i\ell_i(\bx_{k+1})$：
+\begin{align*}
+&\big(\brho_k+c\,\bell(\bx_{k+1})-\brho_{k+1}\big)^\top(\be_j-\brho_{k+1})\le0\\
+\iff{}&
+c\,\bell(\bx_{k+1})^\top(\be_j-\brho_{k+1})\ \le\ (\brho_{k+1}-\brho_k)^\top(\be_j-\brho_{k+1}) .
+\end{align*}
+右端由 Cauchy--Schwarz 与单纯形直径 $\le\sqrt2\,\|\brho_{k+1}-\brho_k\|$；左端为 $c[\max_i\ell_i(\bx_{k+1})-\brho_{k+1}^\top\bell(\bx_{k+1})]$。最佳响应给出 $\brho_{k+1}^\top\bell(\bx_{k+1})=\min_\bx\brho_{k+1}^\top\bell(\bx)=\varphi(\brho_{k+1})\le v^*$，故
+\[
+\max_i\ell_i(\bx_{k+1})-v^*\ \le\ \max_i\ell_i(\bx_{k+1})-\varphi(\brho_{k+1})\ \le\ \tfrac{\sqrt2}{c}\|\brho_{k+1}-\brho_k\| .
+\]
+
+\textbf{速率。}对任意 $\bu\in\simplex_N$ 与 $t\in(0,1]$，$\bu_t:=\brho_{k+1}+t(\bu-\brho_{k+1})$ 可行，$\brho_{k+1}$ 最优给
+\[
+\varphi(\bu_t)-\tfrac1{2c}\|\bu_t-\brho_k\|^2\ \le\ \varphi(\brho_{k+1})-\tfrac1{2c}\|\brho_{k+1}-\brho_k\|^2 .
+\]
+用 $\varphi$ 的凹性 $\varphi(\bu_t)\ge(1-t)\varphi(\brho_{k+1})+t\varphi(\bu)$，展开二次项后除以 $t$ 并令 $t\to0^+$，得
+\[
+\varphi(\bu)-\varphi(\brho_{k+1})\ \le\ \tfrac1c(\brho_{k+1}-\brho_k)^\top(\bu-\brho_{k+1}) .
+\]
+取 $\bu=\brho^*\in\arg\max\varphi$，用极化恒等式 $2(\brho_{k+1}-\brho_k)^\top(\brho^*-\brho_{k+1})=\|\brho^*-\brho_k\|^2-\|\brho^*-\brho_{k+1}\|^2-\|\brho_{k+1}-\brho_k\|^2$，
+\[
+v^*-\varphi(\brho_{k+1})\ \le\ \tfrac1{2c}\big(\|\brho^*-\brho_k\|^2-\|\brho^*-\brho_{k+1}\|^2\big),
+\]
+对 $k=0,\dots,K-1$ 望远镜求和得 $\sum_{k=1}^K[v^*-\varphi(\brho_k)]\le\|\brho^*-\brho_0\|^2/(2c)\le1/c$。由单调上升，$v^*-\varphi(\brho_k)$ 不增，最小的一项不超过平均值，故 $v^*-\varphi(\brho_K)\le1/(cK)$。这一界与 $N$ 无关，Hedge 的对应界则含 $\log N$ 因子。\hfill$\blacksquare$
+
+\subsection{命题~\ref{prop:rps} 的验证}
+\label{app:rps}
+
+池成员对 latest 打平：
+\[
+\be_1^\top S\by=S_{12}\cdot\tfrac12+S_{13}\cdot\tfrac12=\tfrac12\cdot(-1)\cdot\tfrac12+\tfrac12\cdot1\cdot\tfrac12=0 ,
+\]
+故 $\ell_1(\be_1)=\tfrac12$，镜像坐标亦为 $\tfrac12$，$c\aug=c(\tfrac12,\tfrac12)$ 是常向量。给单纯形上的点加一个常向量再投影，结果仍是它自己（投影阈值整体抬高同样的量），故 $\Proj_\simplex(\brho+c\aug)=\brho$，对偶侧不动。原侧场为
+\[
+S\big(\lambda \be_1+\tfrac23\by\big)=S\big(\tfrac13,\tfrac13,\tfrac13\big)^\top=0 ,
+\]
+因为均匀分布是 RPS 的纳什，$S$ 作用其上为零；锚 $\bx_k=\bx$ 时近端项也为零，原侧残差为零。而 $\Expl(\be_1)=\max_jS_{1j}=\tfrac12$，即只出石头会被布完全克制。\hfill$\blacksquare$
+
+\subsection{引理~\ref{lem:dual}：对偶规则的性质}
+\label{app:dual}
+
+记 $\bz:=\be_m+c\aug(\bx)$，$\bw=\Proj_\simplex(\bz)$。
+
+(a) 钝角原理说 $\be_m=\Proj_\simplex(\bz)$ 当且仅当 $(\bz-\be_m)^\top(\bu-\be_m)\le0$ 对一切 $\bu\in\simplex$。而 $\bz-\be_m=c\aug$，条件化为 $\aug^\top \bu\le\aug^\top \be_m=\tfrac12$ 对一切 $\bu$；线性函数在单纯形上的最大值在顶点取到，即 $\max_j\tilde\ell_j\le\tfrac12$。镜像坐标恰为 $\tfrac12$，故等价于 $\max_{i\in P}\ell_i\le\tfrac12$。
+
+(b) 把一点权重从成员 $i$ 挪到镜像，即取 $\bu=\bw+\varepsilon(\be_m-\be_i)$，$0<\varepsilon\le w_i$，它仍在 $\simplex$ 内。钝角原理：
+\[
+(\bz-\bw)^\top(\bu-\bw)=\varepsilon\big[(z_m-w_m)-(z_i-w_i)\big]\le0
+\iff c\,\ell_i-w_i\ \ge\ z_m-w_m=1+\tfrac c2-w_m ,
+\]
+即 $c(\ell_i-\tfrac12)\ge1-w_m+w_i\ge w_i>0$。
+
+(c) $\simplex_2$ 上的点为 $(s,1-s)$，$s\in[0,1]$，到 $\bz=(\tfrac c2+c\mu,\ 1+\tfrac c2)$ 的距离平方
+\[
+(\tfrac c2+c\mu-s)^2+(\tfrac c2+s)^2
+\]
+是 $s$ 的凸二次函数，无约束最小点 $s=\tfrac{c\mu}2$，在 $[0,1]$ 上的最小点就是把它截断到区间内。\hfill$\blacksquare$
+
+多成员时权重由共同的投影阈值决定，没有逐成员的闭式。例如 $c=4$、两成员败率都是 0.9 时 $\bz=(3.6,3.6,3)$，候选 $\bw=(\tfrac12,\tfrac12,0)$；对任意 $\bu\in\simplex_3$，$(\bz-\bw)^\top(\bu-\bw)=3.1(u_1+u_2-1)+3u_3=-0.1u_3\le0$，由钝角原理它确实是投影，镜像权重为零。
+
+\subsection{每步有唯一解}
+\label{app:unique}
+
+\begin{proposition}[每步有唯一解]
+\label{prop:unique}
+对任意锚 $\bx_k$ 与任意池，\eqref{eq:P} 有且只有一个解。
+\end{proposition}
+唯一性来自三点，即自博弈项反对称、池项单调（由投影的单调性）、近端项 $\eta$-强单调；存在性来自 Hartman--Stampacchia 定理。记场 $G_k(\bx):=S\bx+A\bw(\bx)_P$。
+
+\textbf{$G_k$ 单调。}
+
+自博弈项：$(\bx-\bx')^\top S(\bx-\bx')=0$，故 $\langle S(\bx-\bx'),\bx-\bx'\rangle=0$。
+
+池项：对 $\bz=\be_m+c\aug(\bx)$、$\bz'=\be_m+c\aug(\bx')$，镜像坐标相同，池坐标之差为 $c(\ell_i(\bx)-\ell_i(\bx'))=c\,(S\by_i)^\top(\bx-\bx')$，即 $(\bz-\bz')_P=c\,A^\top(\bx-\bx')$、$(\bz-\bz')_m=0$。由 \eqref{eq:monotone}，
+\[
+0\le(\bz-\bz')^\top\big(\bw(\bx)-\bw(\bx')\big)=(\bz-\bz')_P^\top\big(\bw(\bx)-\bw(\bx')\big)_P=c\,(\bx-\bx')^\top A\big(\bw(\bx)-\bw(\bx')\big)_P ,
+\]
+即 $\langle A\bw(\bx)_P-A\bw(\bx')_P,\bx-\bx'\rangle\ge0$。加上 $\eta(\bx-\bx_k)$ 后整个场满足 $\langle\cdot,\bx-\bx'\rangle\ge\eta\|\bx-\bx'\|^2$，即 $\eta$-强单调。这里用到自博弈份额不依赖 $\bx$；若份额取 $w_m(\bx)$，自博弈项变成 $w_m(\bx)S\bx$，不再是反对称二次型。
+
+\textbf{唯一性。}设 $\bx,\bx'$ 都解 \eqref{eq:P}。在 $\bx$ 的不等式里取测试点 $\bx'$，在 $\bx'$ 的不等式里取测试点 $\bx$：
+\[
+\langle G_k(\bx)+\eta(\bx-\bx_k),\,\bx'-\bx\rangle\ge0,\qquad\langle G_k(\bx')+\eta(\bx'-\bx_k),\,\bx-\bx'\rangle\ge0 .
+\]
+相加得 $\eta\|\bx-\bx'\|^2\le-\langle G_k(\bx)-G_k(\bx'),\bx-\bx'\rangle\le0$，故 $\bx=\bx'$。
+
+\textbf{存在性。}$\aug$ 仿射，$\bw(\bx)$ 由 \eqref{eq:monotone} 的非扩张性连续，故 $G_k$ 连续；$X$ 紧凸。连续场在紧凸集上的变分不等式有解，即 Hartman--Stampacchia 定理\citep{hartman1966,facchinei2003vi}。\hfill$\blacksquare$
+
+\subsection{引理~\ref{lem:A}、\ref{lem:B} 与定理~\ref{thm:energy}、\ref{thm:conv}}
+\label{app:lemmas}
+
+\textbf{引理~\ref{lem:A} 的证明。}$\bw=\Proj_\simplex(\be_m+c\aug)$。钝角原理取 $\bu=\be_m\in\simplex$：
+\[
+\big(\be_m+c\aug-\bw\big)^\top(\be_m-\bw)\le0
+\iff\|\be_m-\bw\|^2+c\,\aug^\top(\be_m-\bw)\le0 .
+\]
+由 \eqref{eq:identities}，$\aug^\top \be_m=\tfrac12$、$\aug^\top \bw=b+\tfrac12$，故 $\aug^\top(\be_m-\bw)=-b$。代回得 $\|\bw-\be_m\|^2\le c\,b$。\hfill$\blacksquare$
+
+\textbf{引理~\ref{lem:B} 的证明。}\eqref{eq:P} 取 $\bx'=\bx_N$，并把前两项合成 $S\bv$：
+\[
+\langle S\bv,\,\bx_N-\bx\rangle+\eta\,\dx_k^\top(\bx_N-\bx)\ge0,\qquad
+\langle S\bv,\,\bx_N-\bx\rangle=\bx_N^\top S\bv-\bx^\top S\bv=\bx_N^\top S\bv-b .
+\]
+$\bv=\bx+\sum_iw_i\by_i$ 是 $X$ 中点的非负组合，由 \eqref{eq:nash} 每一项 $\bx_N^\top S\bz\le0$，故 $\bx_N^\top S\bv\le0$。于是 $\eta\,\dx_k^\top(\bx_N-\bx)\ge b-\bx_N^\top S\bv\ge b$。\hfill$\blacksquare$
+
+\textbf{定理~\ref{thm:energy} 的证明。}极化恒等式给出
+\[
+\|\bx_k-\bx_N\|^2=\|\dx_k\|^2+\|\bx_{k+1}-\bx_N\|^2+2\,\dx_k^\top(\bx_N-\bx_{k+1}) ,
+\]
+交叉项依次用引理~\ref{lem:B} 与引理~\ref{lem:A}，
+\[
+2\,\dx_k^\top(\bx_N-\bx_{k+1})\ \ge\ \tfrac2\eta\,b(\bx_{k+1})\ \ge\ \tfrac{2}{c\eta}\|\bw(\bx_{k+1})-\be_m\|^2 .\eqno\blacksquare
+\]
+
+\textbf{定理~\ref{thm:conv} 的证明。}推论~\ref{cor:sum} 给 $a\to0$、$\|\dx\|\to0$，代入定理~\ref{thm:cert}(i) 得 $\Expl(\bx_{k+1})\le\tfrac12a+\eta D\|\dx_k\|\to0$。$X$ 紧、$\Expl$ 连续，任一收敛子列的极限 $\bar \bx$ 是纳什；定理~\ref{thm:energy} 对参照点 $\bar \bx$ 成立，故 $\|\bx_k-\bar \bx\|$ 单调不增，沿子列趋零则整列趋零。\hfill$\blacksquare$
+
+\subsection{定理~\ref{thm:cert}：两条证书}
+\label{app:cert}
+
+(i) 取 $\by_e\in\arg\max_\by\ell(\bx;\by)$，则 $\bx^\top S\by_e=\Expl(\bx)$，反对称给 $\by_e^\top S\bx=-\Expl(\bx)$。\eqref{eq:P} 取 $\bx'=\by_e$，记 $\bd:=\by_e-\bx$，把三项分开：
+\[
+\underbrace{(S\bx)^\top \bd}_{\text{自博弈}}+\underbrace{(A\bw_P)^\top \bd}_{\text{池}}+\underbrace{\eta\,\dx^\top \bd}_{\text{近端}}\ \ge\ 0 .
+\]
+自博弈项：$(S\bx)^\top \bd=\by_e^\top S\bx-\bx^\top S\bx=-\Expl(\bx)$。池项：用 $(S\by_i)^\top \bz=\ell_i(\bz)-\tfrac12$，
+\[
+(A\bw_P)^\top \bd=\sum_iw_i\big(\ell_i(\by_e)-\ell_i(\bx)\big)=\sum_iw_i\big(\ell_i(\by_e)-\tfrac12\big)-b\ \le\ \tfrac12a-b ,
+\]
+最后一步用败率不超过 1。近端项：Cauchy--Schwarz 与直径，$\eta\,\dx^\top \bd\le\eta D\|\dx\|$。三项合起来 $-\Expl(\bx)+\tfrac12a-b+\eta D\|\dx\|\ge0$，移项即第一个不等号；第二个不等号用 $b\ge0$。
+
+(ii) 钝角原理对 $\bw=\Proj_\simplex(\be_m+c\aug)$ 取 $\bu=\be_j$（$j$ 为任一池成员）：
+\[
+\big(\be_m+c\aug-\bw\big)^\top(\be_j-\bw)\le0\iff c\,\aug^\top(\be_j-\bw)\le(\bw-\be_m)^\top(\be_j-\bw)\le\sqrt2\,\|\bw-\be_m\| .
+\]
+左端由 \eqref{eq:identities} 为 $c(\ell_j-\tfrac12-b)$，故 $\ell_j-\tfrac12\le\frac{\sqrt2}c\|\bw-\be_m\|+b$；再由引理~\ref{lem:B} 与 Cauchy--Schwarz，$b\le\eta\dx^\top(\bx_N-\bx)\le\eta D\|\dx\|$。取 $j$ 为最大分量，右端非负，加正部不影响。\hfill$\blacksquare$
+
+\subsection{定理~\ref{thm:rate} 与混合策略}
+\label{app:rate}
+
+\textbf{(i) 的证明。}记 $\alpha_k=\|\bw(\bx_{k+1})-\be_m\|$、$\beta_k=\|\dx_k\|$。由定理~\ref{thm:cert}(i) 与 $a\le\alpha_k$，$\Expl(\bx_{k+1})\le\tfrac12\alpha_k+\eta D\beta_k$。最小值不超过平均值，对两个和分别用 Cauchy--Schwarz（$\sum_{k<K}\alpha_k\le\sqrt K\sqrt{\sum\alpha_k^2}$）并代入推论~\ref{cor:sum}，
+\begin{align*}
+\min_{k<K}\Expl(\bx_{k+1})\ &\le\ \frac1K\sum_{k<K}\Big(\tfrac12\alpha_k+\eta D\beta_k\Big)\\
+&\le\ \frac{1}{\sqrt K}\Big(\tfrac12\sqrt{\tfrac{c\eta}{2}}+\eta D\Big)\|\bx_0-\bx_N\|\ \le\ \frac{\sqrt{c\eta}/2+2\eta}{\sqrt K},
+\end{align*}
+最后一步用 $\|\bx_0-\bx_N\|\le\sqrt2$、$D=\sqrt2$。
+
+\textbf{残差单调。}固定池时相邻两步的场同为 $G$。在第 $k$ 步的 \eqref{eq:P} 取测试点 $\bx_{k+2}$、第 $k+1$ 步取 $\bx_{k+1}$：
+\[
+\langle G(\bx_{k+1})+\eta\dx_k,\ \bx_{k+2}-\bx_{k+1}\rangle\ge0,\qquad\langle G(\bx_{k+2})+\eta\dx_{k+1},\ \bx_{k+1}-\bx_{k+2}\rangle\ge0 ,
+\]
+相加，$G$ 的部分由单调性 $\le0$，剩下 $\eta\langle\dx_k-\dx_{k+1},\dx_{k+1}\rangle\ge0$，即 $\|\dx_{k+1}\|^2\le\dx_k^\top\dx_{k+1}\le\|\dx_k\|\|\dx_{k+1}\|$，故 $\|\dx_{k+1}\|\le\|\dx_k\|$。
+
+\textbf{(ii) 的证明。}若池在步 $K-n,\dots,K-1$ 内不变，这些步的场相同，由残差单调，$\|\dx_k\|$ 在其中不增。从 $\bx_{K-n}$ 起对能量式 \eqref{eq:energy} 求和，得 $n\|\dx_{K-1}\|^2\le\sum_{k=K-n}^{K-1}\|\dx_k\|^2\le\|\bx_{K-n}-\bx_N\|^2\le2$，即 $\beta:=\|\dx_{K-1}\|\le\sqrt{2/n}$。在 $\bx=\bx_K$ 处，引理~\ref{lem:B} 与 Cauchy--Schwarz 给出 $b(\bx)\le\eta D\beta$；引理~\ref{lem:A} 与 $a^2\le\|\bw-\be_m\|^2$ 给出 $a(\bx)\le\sqrt{c\,b(\bx)}\le\sqrt{c\eta D\beta}$。代入定理~\ref{thm:cert}(i)，
+\[
+\Expl(\bx_K)\ \le\ \tfrac12\sqrt{c\eta D\beta}+\eta D\beta\ \le\ \sqrt{c\eta/2}\;n^{-1/4}+2\eta\,n^{-1/2},
+\]
+这里用到 $D=\sqrt2$。残差本身以 $n^{-1/2}$ 衰减，池权重只以 $n^{-1/4}$ 衰减，后者主导。\hfill$\blacksquare$
+
+除 latest $\bx_{k+1}$（单网络）外，每步还有两个可部署的混合，即当前混合 $\bq_{k+1}:=\bv_{k+1}/t_k$ 与时间平均
+\[
+\bar{\bq}_K:=\frac1{T_K}\sum_{k<K}\bv_{k+1},\qquad T_K:=\sum_{k<K}t_k .
+\]
+在序贯博弈中，混合策略须按到达概率转成行为策略\citep{kuhn1953}。两个混合也都收敛。
+\begin{proposition}[混合策略]
+\label{prop:mix}
+(i) 逐步混合满足 $t_k\Expl(\bq_{k+1})\le\eta D\|\dx_k\|$。由 $t_k\ge1$，$\Expl(\bq_{k+1})\le\eta D\|\dx_k\|\to0$，且这一结论不需要 $a\to0$。\\
+(ii) 时间平均满足
+\[
+\Expl(\bar{\bq}_K)\ \le\ \frac{\eta\max_\by\|\bx_0-\by\|^2}{2T_K}\ \le\ \frac{\eta}{T_K},
+\]
+且 $T_K=K+\sum_{k<K}a(\bx_{k+1})\ge K$。\\
+(iii) 在 \S\ref{sec:inexact} 的误差下，这两个界变为
+\[
+t_k\Expl(\bq_{k+1})\ \le\ \eta D\|\dx_k\|+\delta_k+ae_k,\qquad
+\Expl(\bar{\bq}_K)\ \le\ \Big[\eta+\textstyle\sum_{k<K}(\delta_k+a_{k+1}e_k)\Big]\big/T_K .
+\]
+\end{proposition}
+与定理~\ref{thm:cert}(i) 不同，(i) 中没有 $\tfrac12a$ 项。该项来自“exploiter 对池成员的败率不超过 1”这一粗放缩，部署对象换成由算法系数构成的混合后就不再需要。(ii) 是近端点法平均迭代的标准阶数\citep{rockafellar1976ppa,nemirovski2004prox}，不同之处在于增广结构下池的交叉项恰好抵消，入池也不破坏望远镜求和。(iii) 的证明见附录~\ref{app:inexact}。
+
+\textbf{(i) 的证明。}$\bq_{k+1}=\bv_{k+1}/t_k\in X$，因为 $\bv$ 是 $X$ 中点的非负组合、总质量 $t_k\ge1$。对任意 $\by\in X$，\eqref{eq:P} 取 $\bx'=\by$：
+\[
+\by^\top S\bv-\underbrace{\bx^\top S\bv}_{=b}+\eta\,\dx^\top(\by-\bx)\ge0
+\ \Longrightarrow\
+-\by^\top S\bv\ \le\ -b+\eta\,\dx^\top(\by-\bx)\ \le\ \eta D\|\dx\| .
+\]
+左端由反对称等于 $\bv^\top S\by=t\,\bq^\top S\by$，对 $\by$ 取最大得 $t_k\Expl(\bq_{k+1})\le\eta D\|\dx_k\|$。
+
+\textbf{(ii) 的证明。}上式中间步 $-\by^\top S\bv_{k+1}\le\eta\dx_k^\top(\by-\bx_{k+1})$ 对每步成立。用极化恒等式（参照点 $\by$）
+\[
+2\,\dx_k^\top(\by-\bx_{k+1})=\|\bx_k-\by\|^2-\|\bx_{k+1}-\by\|^2-\|\dx_k\|^2\ \le\ \|\bx_k-\by\|^2-\|\bx_{k+1}-\by\|^2 ,
+\]
+对 $k<K$ 望远镜求和，
+\[
+T_K\,\bar{\bq}_K^\top S\by=-\by^\top S\sum_{k<K}\bv_{k+1}\ \le\ \tfrac\eta2\big(\|\bx_0-\by\|^2-\|\bx_K-\by\|^2\big)\ \le\ \tfrac\eta2\|\bx_0-\by\|^2\ \le\ \eta ,
+\]
+两边除以 $T_K$ 并对 $\by$ 取最大；每步 $t_k=1+a(\bx_{k+1})\ge1$，故 $T_K\ge K$。\hfill$\blacksquare$
+
+\subsection{定理~\ref{thm:inexact} 与两种收敛结论}
+\label{app:inexact}
+
+记 $\hat b:=\sum_iw_{k+1,i}(\hat\ell_{k,i}-\tfrac12)$ 为按估计败率算出的池压力，$a$、$b$ 按实际权重与真实败率定义。
+
+\textbf{能量式。}引理~\ref{lem:A} 对实际投影的向量照常成立（证明相同，只需把 $\aug$ 换成 $\hat{\bell}$），$\|\bw_{k+1}-\be_m\|^2\le c\hat b$。换回真值：
+\[
+\hat b-b=\sum_iw_{k+1,i}\big(\hat\ell_{k,i}-\ell_i(\hat \bx_{k+1})\big)\le\sum_iw_{k+1,i}\,e_k=a\,e_k ,
+\]
+只有池坐标带误差（镜像坐标恒为 $\tfrac12$），故比一般的 $2e$ 界紧。对带 $-\delta_k$ 的引理~\ref{lem:B}，在松弛版 \eqref{eq:P} 中取 $\bx'=\bx_N$，同样有 $\bx_N^\top S\hat \bv\le0$，得 $\eta\dx^\top(\bx_N-\hat \bx)\ge b-\delta_k$。串起来
+\[
+\eta\,\dx^\top(\bx_N-\hat \bx)\ \ge\ b-\delta_k\ \ge\ \hat b-ae_k-\delta_k\ \ge\ \tfrac1c\|\bw_{k+1}-\be_m\|^2-ae_k-\delta_k ,
+\]
+代入极化恒等式即能量式。
+
+\textbf{证书。}重复定理~\ref{thm:cert} 与命题~\ref{prop:mix}(i)(ii) 的证明（这同时证明了命题~\ref{prop:mix}(iii)），做两处替换。一是 \eqref{eq:P} 右端 $0\to-\delta_k$，每条证书多出 $\delta_k$；二是凡用到 $-b\le0$ 处，现在只有 $\hat b\ge0$，用 $-b\le-\hat b+ae_k\le ae_k$，latest 与两条混合证书各多出 $ae_k$。对池内证书，钝角原理作用在 $\be_m+c\hat{\bell}$ 上给 $\hat\ell_j-\tfrac12\le\frac{\sqrt2}c\|\bw-\be_m\|+\hat b$，换回真值时 $\ell_j\le\hat\ell_j+e_k$、$\hat b\le b+ae_k\le b+e_k$，共 $2e_k$，最后 $b\le\eta D\|\dx\|+\delta_k$。
+
+\textbf{误差可和 $\Rightarrow$ 收敛。}若 $\sum_k(\delta_k+a_{k+1}e_k)<\infty$，能量式求和给 $\sum\|\dx_k\|^2<\infty$、$\sum\|\bw_{k+1}-\be_m\|^2<\infty$，故 $a\to0$、$\dx\to0$，代入 latest 证书得 $\Expl(\hat \bx_{k+1})\to0$。为证明整列收敛，定义
+\[
+E_k:=\|\bx_k-\bx_N\|^2+\tfrac2\eta\sum_{j\ge k}\big(\delta_j+a_{j+1}e_j\big),
+\]
+能量式给 $E_{k+1}\le E_k$，尾和趋零，$E_k$ 与 $\|\bx_k-\bx_N\|^2$ 同极限，再沿纳什收敛子列取极限。可和误差不恢复残差单调性。
+
+\textbf{误差恒定 $\Rightarrow$ 邻域。}若 $\delta_k\le\delta$、$e_k\le e$，能量式求和除以 $K$ 得
+\[
+\min_{k<K}\Big[\|\dx_k\|^2+\tfrac{2}{c\eta}\|\bw_{k+1}-\be_m\|^2\Big]\le\tfrac2K+\tfrac2\eta(\delta+e) .
+\]
+这是关于 $\min_{k<K}$ 的结论。在任意后缀上重新求和可以得到 $\liminf$ 型结论，但不能推出迭代从某一时刻起始终留在邻域内。\hfill$\blacksquare$
+
+\subsection{oracle 的角色}
+\label{app:oracle}
+
+定理~\ref{thm:conv} 表明 exploiter 可以随意入池或退出而不破坏收敛。在此基础上，oracle 还做两件事，一是提供定向压力（单成员时入池权重 $\operatorname{clip}(c\mu/2,0,1)$），二是提供可测证据，即入池增益 $g:=[\ell(\hat \bx;\hat \by)-\max_{i\in P}\ell_i(\hat \bx)]^+$。若 oracle 相对最坏对手只差 $\tau$，即 $\max_\by\ell(\hat \bx;\by)\le\ell(\hat \bx;\hat \by)+\tau$，则一行拆分给出
+\[
+\Expl(\hat \bx)\le\Big[\max_{i\in P}\ell_i(\hat \bx)-\tfrac12\Big]^++g+\tau ;
+\]
+$\tau$ 对神经 exploiter 不可测，这是 \S\ref{sec:exp-abl} 中桥接代理低估真值的来源。
+
+% ======================================================================
+\section{与主流方法的对照}
+\label{app:related}
+% ======================================================================
+
+\begin{table}[!htbp]
+\caption{与主流方法的对照。}
+\label{tab:related}
+\begin{center}
+\footnotesize
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{lllcccc}
+\toprule
+ & 部署对象 & 均衡载体 & 侵入 RL 内核 & 非传递记忆 & 主动找漏洞 & 在线证书 \\
+\midrule
+PSRO / DO & 混合 & 外部 meta-solver & 否 & 有 & 有 & 元博弈内 \\
+Hedge/MWU 池权重$^{\dagger}$ & 混合或时间平均 & 累计权重（对偶移动锚） & 否 & 有 & 有 & 时间平均 regret \\
+PFSP / League & 单网络 & 无 & 否 & 有 & 有 & 无 \\
+NFSP & 平均网络 & 平均网络 & 是 & 隐式 & 否 & 无 \\
+R-NaD / MMD & 单网络 & 移动锚 & 是 & 无 & 否 & 原侧残差 \\
+\coda{}（移动对偶锚） & 单网络 & 采样单纯形移动锚 & 否 & 有 & 有 & 池内 \\
+\textbf{\codar{}} & 单网络或混合 & 原侧移动锚 + 对偶固定锚 $\be_m$ & 包装层 & 有 & 有 & 池内与全博弈 \\
+\bottomrule
+\end{tabular}}
+\par\smallskip
+\parbox{\linewidth}{\scriptsize $^{\dagger}$包括 PSRO 的 Hedge/PRD 元求解器\citep{lanctot2017psro}、OpenAI Five 的对手采样器\citep{openai2019dota}、APSRO\citep{mcaleer2022anytime} 与 ODO\citep{dinh2022odo}。}
+\end{center}
+\end{table}
+
+% ======================================================================
+\section{补充实验结果}
+\label{app:extra}
+% ======================================================================
+
+\textbf{实现与评估协议。}PPO 实现\citep{schulman2017ppo}（优势估计用 GAE\citep{schulman2016gae}）按 \S\ref{sec:alg} 的流程运行，每个精确对象换成可运行的近似，误差归入 $e_k$ 或 $\delta_k$。一个外步包含 32 个 rollout。每个 rollout 后用对局结果更新败率估计 $\hat{\bell}$ 并重新投影，下一个 rollout 据此抽取对手并做重要性加权。镜像臂的对手是当前参数的冻结副本，近端项采用 R-NaD 形式的收益塑形，外步结束时更新策略锚。oracle 用 PPO 训练 exploiter，上限对照中改用全树精确最佳响应。实现中 $a$ 与 $\|\bw-\be_m\|$ 可以直接读出，但原侧残差只有 KL 代理，$\delta_k$ 没有端到端上界，\rnad{} 与 PSRO 的神经实现也是如此。$B=5\times10^5$ 局的预算按算法实际消耗的对局计算，包括 learner、exploiter 训练、入池评估与 PSRO 的元矩阵对局；\codar{} 约 14\% 的预算花在 oracle 上，其 learner 的对局数相应更少。Leduc 的 exploitability 以筹码为单位，其余博弈的收益为 $\pm1$。
+
+\textbf{短程与长程运行。}\S\ref{sec:exp-e1} 的长程对照、Leduc 的对偶强度扫描与 \S\ref{sec:exp-vuln} 的漏洞注入使用同一套设置；消融、与 \coda{} 的对比和神经证书代理来自更早的短程运行（96 或 192 个 rollout）。两者的主要区别在对偶侧的败率估计器。短程运行用固定步长的 EMA（$\beta=0.1$），池容量为 16；长程运行改用按局数自适应步长的 EMA，在估计值突变时重置历史，并另留一小部分对局探测零权重成员，池容量为 8。此外，短程运行的横轴计入了只用于记录日志的池评估对局。
+
+\textbf{受控漏洞注入。}结果见图~\ref{fig:e2}、图~\ref{fig:weight-hole} 与表~\ref{tab:e2}。每个 seed 先用 \rnad{} 训 64 rollout 得到共同底座，用 PPO 训练攻击者 A 使底座败率升到 0.55–0.57；四条支路从同一底座、新建优化器出发各训 96 rollout，A 在第 0 rollout 注入，B（针对参考支路第 48 rollout 策略训练的攻击者）在第 48 注入。fixed-mix（表中 fixmix）的比例在实验前固定，A 注入后为 $(w_m,w_A)=(0.65,0.35)$，B 注入后为 $(w_m,w_A,w_B)=(0.50,0.25,0.25)$。0.35 是按预期领先 0.12、$c=6$ 算出的闭式初始权重；实际攻击者只领先 0.05--0.07，所以 fixed-mix 给 A 的权重约为 \codar{} 初始权重（0.12--0.20）的两倍。coda\_r\_exact 每个 rollout 用精确 $\ell_i$ 覆盖估计值（$e_k=0$）。B 在 3/4 个 seed 上没有找到漏洞，所有支路的 $T_{\rm fix}$ 都接近立即修复。精确败率版并不优于 EMA 版，差别在 CI 以内。
+
+\textbf{消融、与 \coda{} 的对比及证书代理。}消融见图~\ref{fig:ablations}（96 rollout），与移动锚 \coda{} 的对比见图~\ref{fig:v1}，神经证书代理见图~\ref{fig:bridge}。\codar{} 与 \rnad{} 随 $\eta$ 变化的趋势相近。近端项的两种形式中，Leduc 上损失 KL 更好，Goofspiel(4) 上收益塑形显著更好，主实验两法统一使用收益塑形。整周期冻结镜像在 Leduc 上更差（1.36 对 1.14）；池系数冻结与 oracle 开关的差别都在 CI 内。负结果中桥接代理 $[\max_P\ell_i-\tfrac12]^++g$ 在 72 次 oracle 评估中 55 次低于真值；用 \texttt{latest\_cert} 最小点选 checkpoint 在 Leduc 上比取最后一个更差（$+0.145$ [0.101, 0.678]，图~\ref{fig:ckpt}）。
+
+\subsection{估计器与 oracle 诊断}
+\label{app:diag}
+
+表~\ref{tab:diag} 解释主结果中的两个现象。Goofspiel(4) 上 oracle 确实找到漏洞（$g$ 均值 0.13），但成员真实败率跳到 0.52 以上的 61 次中有 54 次当时权重不足 0.01，估计器的滞后是 \texttt{tail\_worst} 偶发跳高的来源，也是定理~\ref{thm:inexact} 中 $e_k$ 的实测形态。Leduc 上 PPO oracle 的 $g$ 全为 0，池几乎不参与训练；精确 BR 成员的真实败率虽超过 0.52（96 次），但 $c=6$ 时闭式权重太小，放大到 $c=48$ 后 holes 降到 5 次、池质量升到 0.29。
+
+\begin{table}[!htbp]
+\caption{长程对照中 \codar{} 各单元的池诊断。$g$ 为 oracle 入池时对 latest 的增益；holes 为评估 tick 上真实败率 $>0.52$ 的成员次数，括号内为此时权重 $<0.01$ 的次数；dual regret $=\max_j\ell_j-\sum_jw_j\ell_j$（$\bw$ 归一到池内）。}
+\label{tab:diag}
+\begin{center}
+\footnotesize
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{llcccccc}
+\toprule
+环境 & 方法 & oracle 次数 & $g$ 均值 & $g>0.02$ & pool\_mass & holes (missed) & dual regret 均值 / p90 \\
+\midrule
+Goofspiel(4) & PPO oracle & 24 & 0.127 & 21 & 0.040 & 61 (54) & 0.044 / 0.146 \\
+Goofspiel(4) & exact-BR oracle & 28 & 0.116 & 18 & 0.039 & 64 (50) & 0.035 / 0.120 \\
+Leduc & PPO oracle, $c{=}6$ & 24 & 0.000 & 0 & 0.023 & 0 & 0.004 / 0.011 \\
+Leduc & exact-BR oracle, $c{=}6$ & 28 & 0.019 & 14 & 0.065 & 96 (30) & 0.008 / 0.020 \\
+Leduc & exact-BR oracle, $c{=}48$ & 28 & 0.010 & 2 & 0.291 & 5 (2) & 0.006 / 0.014 \\
+Liar's Dice & PPO oracle & 28 & 0.018 & 7 & 0.066 & n/a & n/a \\
+\bottomrule
+\end{tabular}}
+\end{center}
+\end{table}
+
+\subsection{图表}
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[width=0.76\linewidth]{figures/fig_theory_mechanisms.pdf}
+\end{center}
+\caption{有限维机制对照（seed 均值 $\pm$ CI，纵轴 $\Expl(\bx_k)$）。左图从 RPS 反例点出发比较固定锚与移动锚；中图比较隐式与显式镜像；右图比较份额规则 A、B、实时 $\lambda$ 与 $\lambda\equiv0$。}
+\label{fig:theory-mech}
+\end{figure}
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[width=0.6\linewidth]{figures/fig_theory_certificates.pdf}
+\end{center}
+\caption{有限维实验最后一步的证书，横轴为实测左端，纵轴为证书右端，虚线为对角线 $y=x$。左图为精确格子，右图为带误差格子，颜色为注入的 $e$。}
+\label{fig:theory-cert}
+\end{figure}
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[width=0.6\linewidth]{figures/fig_e3_c_sweep.pdf}
+\end{center}
+\caption{Leduc 上的对偶强度扫描（IQM $\pm$ 95\% CI）。灰线与阴影为 \rnad{}。左图为 \texttt{tail\_mean}，右图为 \texttt{at\_budget}。}
+\label{fig:csweep}
+\end{figure}
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[width=0.62\linewidth]{figures/fig_entropy.pdf}
+\end{center}
+\caption{同预算长程对照中的策略熵（seed 均值 $\pm$ CI）。Goofspiel(4) 上 \rnad{} 的熵在 $2\times10^5$ 局后降到 $10^{-4}$ 以下，与其 exploitability 退化同步；\codar{} 维持在 0.05–0.1。}
+\label{fig:entropy}
+\end{figure}
+
+\begin{table}[!htbp]
+\caption{同预算长程对照的完整指标（$B=5\times10^5$，IQM [95\% CI]，$n=4$）。AUC 为按前值保持对 $[0,B]$ 积分再除以 $B$。加粗为各博弈中单网络方法的最优值。}
+\label{tab:e1full}
+\begin{center}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccc}
+\toprule
+方法 & 部署 & at\_budget & tail\_mean & AUC \\
+\midrule
+\multicolumn{5}{l}{\textit{Leduc}} \\
+\rnad{} & L & 1.196 [0.637, 1.666] & 0.980 [0.736, 1.684] & 0.937 [0.860, 1.081] \\
+\codar{} PPO oracle, $c{=}48$ & L & 1.217 [0.684, 1.658] & 0.746 [0.646, 1.206] & 0.930 [0.852, 0.986] \\
+\codar{} exact-BR oracle, $c{=}48$ & L & \textbf{0.398} [0.301, 0.445] & \textbf{0.492} [0.400, 0.543] & \textbf{0.681} [0.637, 0.706] \\
+PSRO, PPO BR & M & 0.650 [0.637, 0.877] & 0.656 [0.609, 0.783] & 1.123 [1.114, 1.148] \\
+PSRO, exact BR & M & 0.353 [0.304, 0.419] & 0.374 [0.369, 0.394] & 0.616 [0.558, 0.634] \\
+\midrule
+\multicolumn{5}{l}{\textit{Goofspiel(4)}} \\
+\rnad{} & L & 0.869 [0.827, 0.990] & 0.797 [0.561, 0.953] & 0.653 [0.579, 0.707] \\
+\codar{} PPO oracle & L & \textbf{0.014} [0.000, 0.165] & \textbf{0.083} [0.037, 0.227] & \textbf{0.244} [0.211, 0.283] \\
+\codar{} exact-BR oracle & L & 0.079 [0.000, 0.323] & 0.115 [0.090, 0.186] & 0.290 [0.239, 0.330] \\
+PSRO, PPO BR & M & 0.088 [0.054, 0.115] & 0.072 [0.055, 0.126] & 0.173 [0.156, 0.191] \\
+PSRO, exact BR & M & $<10^{-15}$ & $<10^{-15}$ & 0.018 [0.011, 0.023] \\
+\midrule
+\multicolumn{5}{l}{\textit{Liar's Dice}} \\
+\rnad{} & L & 0.272 [0.216, 0.291] & 0.259 [0.207, 0.274] & \textbf{0.279} [0.268, 0.282] \\
+\codar{} PPO oracle & L & \textbf{0.251} [0.179, 0.257] & 0.265 [0.231, 0.280] & 0.317 [0.295, 0.345] \\
+\codar{} no oracle & L & 0.253 [0.230, 0.353] & \textbf{0.256} [0.227, 0.348] & 0.310 [0.304, 0.337] \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+\begin{table}[!htbp]
+\caption{Leduc 对偶强度扫描（$B=5\times10^5$，IQM [95\% CI]，$n=4$；$c=6$ 来自主实验目录）。pool\_mass 为全程 $a$ 的均值，est err 为评估 tick 上 $|\hat\ell_i-\ell_i|$ 的均值。加粗为每种 oracle 下 at\_budget 与 tail\_mean 的最优值。}
+\label{tab:csweep}
+\begin{center}
+\footnotesize
+\begin{tabular}{llcccc}
+\toprule
+oracle & $c$ & at\_budget & tail\_mean & pool\_mass & est err \\
+\midrule
+PPO & 6 & 1.310 [1.127, 1.464] & 1.235 [1.041, 1.269] & 0.023 & 0.010 \\
+PPO & 12 & 1.257 [1.089, 1.440] & 0.975 [0.860, 1.305] & 0.039 & 0.010 \\
+PPO & 24 & \textbf{0.846} [0.746, 0.902] & 0.849 [0.808, 0.967] & 0.070 & 0.010 \\
+PPO & 48 & 1.217 [0.684, 1.658] & \textbf{0.746} [0.646, 1.206] & 0.123 & 0.010 \\
+\midrule
+exact BR & 6 & 0.845 [0.513, 0.921] & 0.823 [0.707, 0.873] & 0.065 & 0.011 \\
+exact BR & 12 & 0.599 [0.509, 0.843] & 0.686 [0.486, 0.735] & 0.107 & 0.010 \\
+exact BR & 24 & 0.532 [0.426, 0.652] & 0.570 [0.460, 0.708] & 0.175 & 0.009 \\
+exact BR & 48 & \textbf{0.398} [0.301, 0.445] & \textbf{0.492} [0.400, 0.543] & 0.291 & 0.010 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+\begin{table}[!htbp]
+\caption{受控漏洞注入（Goofspiel(4)，$n=4$，IQM [95\% CI]）。$T_{\rm fix}$ 为首次连续三个 rollout 满足 $\ell\le0.52$ 的 rollout 序号；recur$_A$ 为 $r\ge56$ 上 $\ell(\bx;A)-\tfrac12$ 的最大值；gap 为 $w_A<0.01$ 时 A 的最大真实收益；est err 为 $|\hat\ell_A-\ell(\bx;A)|$ 均值。前四列均越低越好，加粗为各列最优值；gap 与 est err 是 \codar{} 的诊断量，不参与比较。}
+\label{tab:e2}
+\begin{center}
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lcccccc}
+\toprule
+支路 & $T_{\rm fix,A}$ & recur$_A$ & expl\_tail & expl\_worst\_tail & gap & est err \\
+\midrule
+rnad & 3.5 & 0.0073 & 0.232 [0.186, 0.326] & 0.387 [0.221, 0.569] & --- & --- \\
+fixmix & \textbf{2.0} & 0.0138 & 0.450 [0.201, 0.574] & 0.521 [0.289, 0.614] & --- & --- \\
+coda\_r\_ema & 6.0 & 0.0080 & \textbf{0.167} [0.072, 0.272] & \textbf{0.272} [0.099, 0.514] & 0.0115 & 0.0062 \\
+coda\_r\_exact & 3.5 & \textbf{0.0056} & 0.267 [0.185, 0.339] & 0.404 [0.393, 0.450] & 0.0048 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{table}
+
+\begin{figure}[!htbp]
+\centering
+\begin{minipage}[b]{0.6\linewidth}
+\centering
+\includegraphics[width=\linewidth]{figures/fig_e2_vuln_panels.pdf}
+\caption{受控漏洞注入（Goofspiel(4)，seed 均值 $\pm$ 95\% CI，虚线为 B 注入的第 48 rollout）。左上 $\ell(\bx;A)$，右上 $\ell(\bx;B)$，左下 $w_A$（fixmix 为固定比例），右下全树 exploitability。}
+\label{fig:e2}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.37\linewidth}
+\centering
+\includegraphics[width=\linewidth]{figures/fig_e2_weight_vs_hole.pdf}
+\caption{受控漏洞注入中 $w_A$ 对 $\ell(\bx;A)-\tfrac12$ 的散点（只用 B 注入前的 rollout），虚线为单成员闭式 $\operatorname{clip}(c\mu/2,0,1)$，$c=6$。}
+\label{fig:weight-hole}
+\end{minipage}
+\end{figure}
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[width=0.9\linewidth]{figures/fig_v1_short_run.pdf}
+\end{center}
+\caption{短程运行（192 rollout，横轴为含诊断对局的全部环境对局，4 seeds），比较 \codar{}、\rnad{}、移动对偶锚的 \coda{}、PSRO 混合与 NFSP 平均网络。Kuhn、\coda{} 与 NFSP 只在此处报告。}
+\label{fig:v1}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\begin{minipage}[b]{0.62\linewidth}
+\centering
+\includegraphics[width=\linewidth]{figures/fig_oracle_bridge.pdf}
+\caption{oracle 入池时刻的两种神经代理对同一策略真实归一化 exploitability 的散点（短程运行）。\texttt{latest\_cert} 63/72 次低于真值，桥接代理 55/72 次低于真值。}
+\label{fig:bridge}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.34\linewidth}
+\centering
+\includegraphics[width=0.8\linewidth]{figures/fig_checkpoint_selection.pdf}
+\caption{checkpoint 选择。横轴为最后一个 checkpoint 的 exploitability，纵轴为 \texttt{latest\_cert} 最小点的 exploitability。}
+\label{fig:ckpt}
+\end{minipage}
+\end{figure}
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[width=0.85\linewidth]{figures/fig_ablations.pdf}
+\end{center}
+\caption{消融（96 rollout，最终 exploitability IQM $\pm$ CI）。左图为 $\eta$ 网格，\codar{} 与 \rnad{} 同网格；中图为 oracle 开关；右图为近端项形式 A（损失 KL）/ B（收益塑形）与池系数每 rollout 重投影 / 整周期冻结。}
+\label{fig:ablations}
+\end{figure}
+
+\end{document}
