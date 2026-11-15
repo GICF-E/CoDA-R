@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from analysis.data import Outputs
-from analysis.plots import band, figure, row_legend
+from analysis.plots import band, figure, row_legend, shared_legend
 from analysis.style import Style, method_style, variant_styles
 from experiment.common.plotting import save_figure
 from experiment.common.stats import wilson
@@ -181,7 +181,7 @@ def theory_oracle_rate(out: Outputs, dest: Path) -> list[str]:
     """T11：上行为最终 Expl 随 eta 的变化（中位数与四分位距），下行为 eta = 16 时的 Expl(x_k)；每列一个博弈族。"""
     cells = out.theory("theory-oracle-rate")
     games = sorted({(str(p["family"]), int(p["size"])) for p, _runs in cells})
-    made = figure(2, len(games), 8.4, 5.0) if cells else None
+    made = figure(2, len(games), 7.2, 3.6, sharey = "row") if cells else None
     if made is None:
         return []
     fig, axes = made
@@ -203,7 +203,7 @@ def theory_oracle_rate(out: Outputs, dest: Path) -> list[str]:
         axes[1, col].set(yscale = "log", xlabel = rf"outer step ($\eta$ = {curve_eta:g})")
     axes[0, 0].set_ylabel("final Expl (median, IQR)")
     axes[1, 0].set_ylabel(EXPL_LABEL)
-    row_legend(axes[0])
+    shared_legend(fig, axes, ncol = 5)
     save_figure(fig, dest, "theory_oracle_rate")
     return ["theory_oracle_rate"]
 

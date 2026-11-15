@@ -93,7 +93,7 @@
 \maketitle
 
 \begin{abstract}
-Self-play for two-player zero-sum games can cycle when strategies beat one another in a rock--paper--scissors pattern. Regularized self-play removes the cycles and trains a single network, but that network only ever plays itself and cannot learn from external opponents. Population methods train against a pool of opponents, but what they guarantee to converge is a mixture over the pool, and the network being trained has no guarantee. We propose Coupled Dual-Adversarial Regularized self-play (CoDA-R), which trains one network against itself and against a pool. Before each regularized policy update, a closed-form rule gives training weight only to the pool opponents that currently beat the network, according to their lead. For the exact algorithm, we prove that the trained policy itself converges to a Nash equilibrium however opponents enter or leave the pool, and that an approximate best response in the pool guarantees progress toward equilibrium at every step, proportional to the squared exploitability. We implement CoDA-R on proximal policy optimization (PPO) and compare it, at a matched budget, with baselines tuned by the same protocol on five imperfect-information games. CoDA-R reaches the lowest exploitability among single-network methods on three games, 73\% and 36\% below the regularized self-play baseline on Goofspiel and Leduc poker, ties the best on one, and is second on one. Controlled experiments show that the pool repairs vulnerabilities that self-play almost never reaches and keeps a near-equilibrium network from drifting away.
+Self-play for two-player zero-sum games can cycle when strategies beat one another in a rock--paper--scissors pattern. Regularized self-play removes the cycles and trains a single network, but that network only plays itself and cannot learn from external opponents. Population methods train against a pool of opponents, but their convergence guarantees apply to a mixture over the pool rather than to the network being trained. We propose Coupled Dual-Adversarial Regularized self-play (CoDA-R), which trains one network against itself and an open opponent pool. Before each regularized policy update, a closed-form rule assigns training weight only to pool opponents that currently beat the network, in proportion to their lead. For the exact algorithm, we prove that the trained policy itself converges to a Nash equilibrium however opponents enter or leave the pool, and that an approximate best response in the pool guarantees per-step progress toward equilibrium proportional to the squared exploitability. We implement CoDA-R on proximal policy optimization (PPO) and compare it at a matched budget with baselines tuned under the same protocol across five imperfect-information games. CoDA-R achieves the lowest exploitability among single-network methods on three games (73\% and 36\% below regularized self-play on Goofspiel and Leduc poker), ties for best on one, and places second on one. Controlled experiments show that the pool repairs vulnerabilities rarely reached by self-play and prevents a near-equilibrium network from drifting.
 \end{abstract}
 
 % ----------------------------------------------------------------------
@@ -102,26 +102,25 @@ Self-play for two-player zero-sum games can cycle when strategies beat one anoth
 
 Two-player zero-sum games are the basic model of adversarial decision making. Board games, poker, and real-time strategy games are direct instances~\citep{silver2018alphazero,brown2018libratus,vinyals2019alphastar,perolat2022stratego}, and the training objectives of generative adversarial networks and robust optimization are also min--max problems~\citep{goodfellow2014gan,daskalakis2018optimism}. The natural solution concept is a Nash strategy, which in a symmetric game is a strategy that no opponent beats in expectation. The common way to find one is self-play: the current policy plays against itself or its past versions and is updated by reinforcement learning, with neither human data nor an explicit opponent model.
 
-Self-play has a well-known failure mode. Real games contain nontransitive cycles~\citep{czarnecki2020spinning}, in which a first strategy beats a second, the second beats a third, and the third beats the first. Naive self-play, which only updates against the current policy, chases these cycles and does not converge~\citep{balduzzi2018mechanics,balduzzi2019openended}. Two families of remedies exist. \emph{Regularized self-play}, such as Regularized Nash Dynamics (R-NaD) and Magnetic Mirror Descent (MMD), penalizes the distance between the policy and a reference policy that is moved periodically. This turns the cycling into convergence, and the guarantee holds for the single network being trained~\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}. But the network only plays itself. Scripted opponents, earlier snapshots, and \emph{exploiters}, i.e., opponents trained specifically to beat the current policy, cannot be used, so vulnerabilities that self-play does not reach are neither found nor repaired~\citep{openai2019dota,bansal2018emergent}. \emph{Population methods}, such as Double Oracle, Policy-Space Response Oracles (PSRO), prioritized fictitious self-play (PFSP), and league training, train against a pool of such opponents~\citep{mcmahan2003doubleoracle,lanctot2017psro,vinyals2019alphastar}. Where they have a guarantee, it holds for a mixture over the pool members or for a separately learned average network, and the network being trained has none. Rules that weight pool opponents by win rate, such as PFSP and the sampler of OpenAI Five, have no convergence proof.
+Self-play has a well-known failure mode. Real games contain nontransitive cycles~\citep{czarnecki2020spinning}, in which a first strategy beats a second, the second beats a third, and the third beats the first. Naive self-play, which updates only against the current policy, chases these cycles and fails to converge~\citep{balduzzi2018mechanics,balduzzi2019openended}. Two families of remedies exist. \emph{Regularized self-play}, such as Regularized Nash Dynamics (R-NaD) and Magnetic Mirror Descent (MMD), penalizes the distance between the policy and a periodically moved reference policy. This turns cycling into convergence of the single network being trained~\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}, but that network only plays itself: scripted opponents, earlier snapshots, and \emph{exploiters} (opponents trained to beat the current policy) cannot be used, so vulnerabilities off the self-play trajectory are neither found nor repaired~\citep{openai2019dota,bansal2018emergent}. \emph{Population methods}, such as Double Oracle, Policy-Space Response Oracles (PSRO), prioritized fictitious self-play (PFSP), and league training, train against a pool of such opponents~\citep{mcmahan2003doubleoracle,lanctot2017psro,vinyals2019alphastar}. Where they carry a guarantee, it holds for a mixture over the pool or a separately trained average network rather than for the network being trained, and win-rate weightings such as PFSP and the OpenAI Five sampler have no convergence proof.
 
 \begin{figure}[t]
 \begin{center}
 \input{figures/overview}
 \end{center}
 \vspace{-4pt}
-\caption{One step of \codar{}. Left: the learner plays the pool and itself; the weight rule turns its loss rates into weights, and the policy update takes a regularized step against the weighted opponents. Right: the weight rule as a threshold (here $c=2$). Pool member $i$ has height $c\,\ell_i$ and self-play has height $1+\tfrac c2$; the part above the threshold $\tau$ is the weight, so members that tie or lose get exactly zero.}
+\caption{One step of \codar{} (left) and the threshold weight projection at $c=2$ (right).}
 \label{fig:overview}
 \end{figure}
 
-This paper asks whether one network can train against an open pool of opponents and still be the object that converges. We propose Coupled Dual-Adversarial Regularized self-play (\codar{}), for which the answer is yes when its steps are computed exactly. \codar{} keeps a single policy, the \emph{learner}, and a pool of frozen opponents, and each step has two parts (Figure~\ref{fig:overview}). First, a closed-form rule assigns training weights. A pool opponent receives weight only if it currently beats the learner, and more weight for a larger lead; opponents that tie or lose receive exactly zero, and the remaining weight goes to self-play. Second, the learner takes a regularized step against itself and the weighted pool, as in regularized self-play. The weights play the role of an adversary's dual variable, since they are chosen to maximize the learner's weighted loss, which gives the method its name. The rule needs only the learner's loss rate against each pool member, which is estimated from the training games themselves. Any agent that can play the game can therefore be a pool member, including scripted bots, agents of other architectures, and exploiters produced by an \emph{oracle} during training, whereas PSRO needs the payoffs between all pairs of pool members.
+This paper asks whether a single network can train against an open pool of opponents and still converge itself. We propose Coupled Dual-Adversarial Regularized self-play (\codar{}), which maintains one policy, the \emph{learner}, alongside a pool of frozen opponents, and updates in two parts at each step (Figure~\ref{fig:overview}). First, a closed-form rule assigns training weights: a pool opponent receives positive weight only if it currently beats the learner, with larger weight for a larger lead; opponents that tie or lose receive zero weight, and the remaining weight goes to self-play. Second, the learner takes a regularized step against itself and the weighted pool. Because the weights maximize the learner's regularized loss, they act as an adversary's dual variable, giving the method its name. Computing them requires only the learner's loss rate against each pool member, estimated from the training games themselves. Any agent that can play the game can therefore join the pool—including scripted bots, agents of other architectures, and exploiters produced by an \emph{oracle} during training—whereas PSRO requires payoffs between all pairs of pool members.
 
-The two parts are coupled by one inequality (Theorem~\ref{thm:energy}). Every step of the learner and every unit of weight held by the pool is paid for by a decrease of the squared distance between the learner and a Nash strategy. This distance is finite, so the steps and the pool weights must both vanish, and a policy that has stopped moving while no pool member holds weight is a Nash strategy of the full game. The argument holds for any pool contents and any schedule of changes to the pool. The same inequality shows what the pool adds: when the pool contains an approximate best response to the learner, each step moves the learner toward equilibrium by an amount proportional to its squared exploitability (Theorem~\ref{thm:oracle}). Our contributions are as follows.
+The two updates are coupled by a single energy inequality (Theorem~\ref{thm:energy}): every step of the learner and every unit of pool weight is paid for by a decrease in the squared distance from the learner to a Nash strategy. Since this initial distance is finite, both policy steps and pool weights must vanish, and a policy that stops moving while the pool holds zero weight must be a Nash strategy of the full game. This holds for any pool contents and any schedule of pool additions or removals. When the pool contains an approximate best response, the same inequality guarantees per-step progress toward equilibrium proportional to the squared exploitability (Theorem~\ref{thm:oracle}). Our contributions are as follows.
 \begin{itemize}
-\item \textbf{Algorithm.} \codar{} trains a single network against itself and an open pool of black-box opponents, with a closed-form weight rule that carries no state between steps. Prior pool methods guarantee a mixture or a time average, and regularized self-play admits no external opponents; \codar{} admits any opponent and keeps the guarantee on the trained policy itself. It wraps an unmodified PPO learner and adds only a proximal reward term (\S\ref{sec:alg}, \S\ref{sec:impl}).
-\item \textbf{Theory.} A single energy inequality charges both policy movement and pool weight to the distance to a Nash equilibrium. It yields last-iterate convergence of the trained policy for any sequence of pool changes, an $O(K^{-1/4})$ last-iterate rate once the pool stops changing, bounds on exploitability in terms of quantities observed during training, and versions of all bounds with errors (\S\ref{sec:theory}). When the pool contains an approximate best response, it also bounds the progress of each step from below by the squared exploitability (Theorem~\ref{thm:oracle}).
-\item \textbf{Experiments.} In about $10^8$ per-step records of the exact algorithm, no inequality is violated. With PPO, at a matched budget and with every baseline tuned by the same protocol, the \codar{} learner has the lowest tail exploitability among single networks on Goofspiel(4), Leduc poker, and 3$\times$3 abrupt Dark Hex, and ties \rnad{} on abrupt Phantom Tic-Tac-Toe. Controlled experiments isolate what the pool contributes and where the weight rule differs from PFSP (\S\ref{sec:exp}).
+\item \textbf{Algorithm.} \codar{} trains a single network against itself and an open pool of black-box opponents via a stateless closed-form weight rule anchored at pure self-play, wrapping an unmodified proximal policy optimization (PPO)~\citep{schulman2017ppo} learner with a proximal reward term (\S\ref{sec:alg}, \S\ref{sec:impl}). Fixing the dual anchor at pure self-play avoids the non-Nash fixed points that trap a moving anchor (\S\ref{sec:coda}).
+\item \textbf{Theory.} A single energy inequality yields last-iterate convergence of the trained policy under arbitrary pool changes, an $O(K^{-1/4})$ last-iterate rate once the pool is fixed, online exploitability certificates, error-tolerant bounds, and a per-step progress guarantee proportional to squared exploitability when an approximate best response is in the pool (\S\ref{sec:theory}).
+\item \textbf{Experiments.} Across about $10^8$ per-step records of the exact algorithm, no theoretical inequality is violated. With PPO at a matched budget against baselines tuned under the same protocol, the \codar{} learner achieves the lowest tail exploitability among single networks on Goofspiel(4), Leduc poker, and 3$\times$3 abrupt Dark Hex, and ties regularized self-play (R-NaD) for best on abrupt Phantom Tic-Tac-Toe. Controlled experiments isolate what the pool contributes and how the weight rule differs from PFSP (\S\ref{sec:exp}).
 \end{itemize}
-The reference point of the weight rule is fixed at pure self-play. A variant in which it moves with training, the natural design for solving the game restricted to the pool, gets stuck at non-equilibrium points; \S\ref{sec:coda} gives a counterexample and explains why the reference point must be fixed.
 
 % ----------------------------------------------------------------------
 \section{Problem Setting}
@@ -134,7 +133,7 @@ We consider a finite two-player zero-sum game in which the two seats are assigne
 \[
 X=\simplex_M:=\Big\{\bx\in\mathbb R^M:\ x_i\ge0,\ \textstyle\sum_ix_i=1\Big\}.
 \]
-We write $\simplex_n$ for the probability simplex in $\mathbb R^n$ throughout. In a sequential game with perfect recall, mixed strategies are equivalent to the behavior policies that a network represents~\citep{kuhn1953}, so this normal form covers games such as poker with no further assumption. $M$ is then very large, but the algorithm never enumerates pure strategies; the normal form is used only in the analysis.
+We write $\simplex_n$ for the probability simplex in $\mathbb R^n$ and $\be_i$ for its $i$-th standard basis vertex throughout. By Kuhn's theorem~\citep{kuhn1953}, in a finite sequential game with perfect recall any behavior policy represented by a network has a realization-equivalent mixed strategy. We therefore state the analysis in normal form while running the algorithm directly on behavior policies, without enumerating the $M$ pure strategies.
 
 Let $\ell(\bx;\by)\in[0,1]$ denote the expected loss of strategy $\bx$ against $\by$, with outcomes scaled so that a loss counts 1, a win 0, and a tie $\tfrac12$. We call it the \emph{loss rate}. Zero-sum payoffs and symmetry give $\ell(\bx;\by)+\ell(\by;\bx)=1$, so there exists a skew-symmetric matrix $S=-S^\top$ such that
 \[
@@ -193,7 +192,7 @@ $\aug(\bx)$ & $(\ell_1(\bx),\dots,\ell_N(\bx),\tfrac12)$, the loss rates with se
 $\bw(\bx)$, $\bw_P$, $\wsp$ & weights; their pool coordinates; the self-play weight \\
 $\esp$ & $(0,\dots,0,1)$, all weight on self-play \\
 $c$, $\eta$ & dual strength; proximal strength \\
-$a$, $b$ & pool weight $1-\wsp$; pool pressure $\sum_iw_i(\ell_i-\tfrac12)$ \\
+$a$, $b$ & pool weight $1-\wsp$; pool pressure $\sum_{i=1}^N w_i(\ell_i(\bx)-\tfrac12)$ \\
 $\xi_k$, $\delta_k$, $\varepsilon$ & errors of the loss estimates, of the policy update, and of the oracle \\
 \bottomrule
 \end{tabular}
@@ -206,7 +205,7 @@ $\xi_k$, $\delta_k$, $\varepsilon$ & errors of the loss estimates, of the policy
 % ----------------------------------------------------------------------
 
 \begin{algorithm}[t]
-\caption{One step of \codar{} (exact form; the PPO implementation is described in \S\ref{sec:impl})}
+\caption{One step of exact \codar{}.}
 \label{alg:codar}
 \begin{algorithmic}[1]
 \Require learner $\bx_k$, pool $P=\{\by_1,\dots,\by_N\}$, dual strength $c>0$, proximal strength $\eta>0$
@@ -218,7 +217,7 @@ $\xi_k$, $\delta_k$, $\varepsilon$ & errors of the loss estimates, of the policy
 \end{algorithmic}
 \end{algorithm}
 
-\codar{} maintains the learner $\bx_k$ and the pool $P$. One step (Algorithm~\ref{alg:codar}, Figure~\ref{fig:overview}) has two parts. The \emph{weight rule} takes the learner's loss rate against every pool member and assigns weights: members that currently beat the learner receive weight according to their lead, the others receive exactly zero, and the remaining weight goes to self-play. The \emph{policy update} then takes a regularized step for the learner against itself and the weighted pool, staying close to the previous policy $\bx_k$. Since the weights are chosen against the learner, as the maximizing variable of a min--max problem, we also call the weight rule the dual side and the policy update the primal side. In the exact algorithm analyzed in \S\ref{sec:theory}, both parts are evaluated at the new policy $\bx_{k+1}$, i.e., the step is implicit; \S\ref{sec:impl} describes the approximation used with PPO.
+\codar{} maintains the learner $\bx_k$ and the pool $P$. One step (Algorithm~\ref{alg:codar}, Figure~\ref{fig:overview}) has two parts. The \emph{weight rule} maps the learner's loss rate against every pool member to weights: members that currently beat the learner receive weight according to their lead, the others receive zero, and the remaining weight goes to self-play. The \emph{policy update} then takes a regularized step for the learner against itself and the weighted pool, staying close to $\bx_k$. Because the weights act as the maximizing variable of a min--max problem, we also call the weight rule the dual side and the policy update the primal side. In the exact algorithm analyzed in \S\ref{sec:theory}, both parts are evaluated at the new policy $\bx_{k+1}$, so the step is implicit; \S\ref{sec:impl} describes the PPO approximation.
 
 \subsection{Weight Rule}
 \label{sec:dual}
@@ -238,7 +237,7 @@ By the threshold form of the projection, $w_i=(c\,\ell_i(\bx)-\tau)^+$ for the p
 
 \begin{lemma}[Properties of the weight rule]
 \label{lem:dual}
-(a) $\bw(\bx)=\esp$ if and only if $\max_{i\in P}\ell_i(\bx)\le\tfrac12$.\\
+(a) $\bw(\bx)=\esp$ if and only if $\max_{1\le i\le N}\ell_i(\bx)\le\tfrac12$.\\
 (b) A member holding weight must be currently beating the learner:
 \[
 w_i(\bx)>0\ \Longrightarrow\ \ell_i(\bx)-\tfrac12\ \ge\ \frac{1-\wsp(\bx)+w_i(\bx)}{c}\ >\ 0 .
@@ -246,16 +245,16 @@ w_i(\bx)>0\ \Longrightarrow\ \ell_i(\bx)-\tfrac12\ \ge\ \frac{1-\wsp(\bx)+w_i(\b
 (c) If the pool has a single member and $\ell_1(\bx)=\tfrac12+\mu$, then $w_1(\bx)=\operatorname{clip}(\tfrac{c\mu}{2},0,1)$.
 \end{lemma}
 
-By (a), when no member beats the learner, all weight goes to self-play and the step is a regularized self-play step, the common skeleton of R-NaD and MMD; \codar{} departs from regularized self-play only while some opponent beats the learner. By (b), a member that holds weight is winning, and heavier members lead by more. With several members the weights share one threshold and have no per-member closed form. For example, $c=4$ and two members with loss rate 0.9 give $\esp+c\,\aug=(3.6,3.6,3)$ and $\bw=(\tfrac12,\tfrac12,0)$, with no weight left for self-play.
+By (a), when no member beats the learner, all weight goes to self-play and the step reduces to a regularized self-play step, the common skeleton of R-NaD and MMD; \codar{} departs from regularized self-play only while some opponent beats the learner. By (b), every active member is winning, with larger leads receiving larger weights. With multiple members, all weights share the common threshold $\tau$, and self-play weight reaches zero when strongly winning members absorb the entire simplex.
 
-The anchor is placed at $\esp$ because the correct weights at the solution are known in advance: no opponent beats a Nash strategy, so by (a) the weights there are $\esp$. Since the anchor is fixed, $\bw(\bx)$ is a continuous closed-form function of the current loss rates and carries no state from earlier steps. A new pool member needs no initialization, and a member regains weight as soon as it wins again. \S\ref{sec:coda} shows that an anchor that moves with training loses the convergence guarantee.
+The anchor is placed at $\esp$ because the equilibrium weights are known in advance: no opponent beats a Nash strategy, so by (a) the weights there must be $\esp$. Fixing the anchor makes $\bw(\bx)$ a stateless, continuous closed-form function of the current loss rates, so newly admitted members require no initialization and suppressed members regain weight as soon as they win again (\S\ref{sec:coda} shows why a moving anchor fails).
 
 \subsection{Policy Update}
 \label{sec:primal}
 
 Fix the previous policy $\bx_k$, which serves as the \emph{policy anchor}, and the \emph{proximal strength} $\eta>0$. Suppose for the moment that the opponents are fixed: a self-play opponent $\bar{\by}$ with coefficient 1 and the pool members with weights $\bw$. The policy update minimizes the weighted loss rate plus a proximal penalty,
 \begin{equation}
-f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i\in P}w_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_k\|^2,\qquad \bx\in X .
+f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i=1}^Nw_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_k\|^2,\qquad \bx\in X .
 \label{eq:primal-obj}
 \end{equation}
 With $A:=[S\by_1\cdots S\by_N]\in\mathbb R^{M\times N}$, the gradient of the first two terms is the constant vector $S\bar{\by}+A\bw_P$. Completing the square then gives the minimizer $\Proj_X\big(\bx_k-\tfrac1\eta[S\bar{\by}+A\bw_P]\big)$, a projected step of size $1/\eta$ from $\bx_k$ that lowers the weighted loss rate. The exact algorithm evaluates the opponents at the solution itself, $\bar{\by}=\bx_{k+1}$ and $\bw=\bw(\bx_{k+1})$, so the update is
@@ -263,26 +262,23 @@ With $A:=[S\by_1\cdots S\by_N]\in\mathbb R^{M\times N}$, the gradient of the fir
 \bx_{k+1}=\Proj_X\Big(\bx_k-\tfrac1\eta\big[S\bx_{k+1}+A\,\bw(\bx_{k+1})_P\big]\Big).
 \label{eq:primal}
 \end{equation}
-The unknown appears on both sides, so the update is implicit. By the projection inequality, \eqref{eq:primal} is equivalent to the variational inequality
-\begin{equation*}
+Because $\bx_{k+1}$ appears on both sides, the update is implicit. By the projection inequality, \eqref{eq:primal} is equivalent to the variational inequality
+\begin{equation}
 \big\langle S\bx_{k+1}+A\,\bw(\bx_{k+1})_P+\eta(\bx_{k+1}-\bx_k),\ \bx'-\bx_{k+1}\big\rangle\ \ge\ 0\qquad\forall \bx'\in X ,
-\tag{VI}
 \label{eq:P}
-\end{equation*}
-whose three terms are the gradients at $\bx_{k+1}$ of the three terms of \eqref{eq:primal-obj}: self-play, pool, and proximal penalty. For any $\bx_k$ and any pool, \eqref{eq:P} has exactly one solution (Proposition~\ref{prop:unique} in Appendix~\ref{app:unique}). All later proofs insert a suitable test point $\bx'$ into \eqref{eq:P}. We write
+\end{equation}
+whose three terms are the gradients at $\bx_{k+1}$ of the self-play, pool, and proximal terms in \eqref{eq:primal-obj}. In convex-analytic terms, $A\,\bw(\bx)_P$ is the gradient of the smooth convex pool penalty $\Psi_P(\bx):=\max_{\bw\in\simplex_{N+1}}[\sum_{i=1}^Nw_i(\ell_i(\bx)-\tfrac12)-\tfrac1{2c}\|\bw-\esp\|^2]$, which vanishes on all Nash strategies, so \eqref{eq:P} is an implicit proximal point step for the monotone operator $S\bx+\nabla\Psi_P(\bx)$. For any $\bx_k$ and any pool, \eqref{eq:P} has a unique solution (Proposition~\ref{prop:unique} in Appendix~\ref{app:unique}), and all later proofs insert a suitable test point $\bx'$ into \eqref{eq:P}. Writing
 \[
-\bv_{k+1}:=\bx_{k+1}+\textstyle\sum_iw_i(\bx_{k+1})\,\by_i,\qquad t_k:=2-\wsp(\bx_{k+1})\ \ge\ 1
+\bv_{k+1}:=\bx_{k+1}+\sum_{i=1}^Nw_i(\bx_{k+1})\,\by_i,\qquad t_k:=2-\wsp(\bx_{k+1})\ \ge\ 1
 \]
-for the combined opponent and its total mass. Then $S\bv_{k+1}$ is the sum of the first two terms of \eqref{eq:P}, and \eqref{eq:P} says that the learner makes a proximal best response to $\bv_{k+1}$.
-
-The implicit form matters. The analysis needs the weights and the self-play opponent to be evaluated at the same point $\bx_{k+1}$ (Lemma~\ref{lem:B}). If the self-play opponent is instead the previous policy $\bx_k$, the resulting explicit update drifts away from equilibrium, and its exploitability stalls near 0.1 in our matrix-game runs (Appendix Figure~\ref{fig:theory-nec}).
+for the combined opponent and its total mass, $S\bv_{k+1}$ equals the sum of the first two terms of \eqref{eq:P}, so \eqref{eq:P} makes a proximal best response to $\bv_{k+1}$. Evaluating both the self-play opponent and the weights at $\bx_{k+1}$ aligns their reference point in Lemma~\ref{lem:B} (\S\ref{sec:exp-theory} tests explicit variants).
 
 \subsection{Self-Play Coefficient and Opponent Sampling}
 \label{sec:share}
 
-Self-play enters \eqref{eq:P} with coefficient 1 at every step, whatever the self-play weight $\wsp$, so the combined opponent always has mass $t_k\ge1$. The coefficient has to be a positive constant. With coefficient 0, the first two terms of \eqref{eq:P} vanish once the pool weights reach zero, and every $\bx$ is a fixed point. With the coefficient set to the self-play weight $\wsp(\bx_{k+1})$, the self-play term $\wsp(\bx)S\bx$ is no longer skew-symmetric in $\bx$, and the monotonicity behind Proposition~\ref{prop:unique} is lost.
+In the dual projection \eqref{eq:dual}, $\wsp$ gates how much total weight $a=1-\wsp\in[0,1]$ the pool receives; in the policy update \eqref{eq:P}, self-play enters with a fixed unit coefficient and the pool is added on top with weights $\bw_P$, giving total mass $t_k\ge1$. Keeping the self-play coefficient constant and positive preserves skew-symmetry of the self-play operator $S\bx$ (used for unique solvability in Proposition~\ref{prop:unique}) and ensures that self-play still drives the learner once the pool weights reach zero (\S\ref{sec:exp-theory}).
 
-The coefficients describe the training objective, and the sampling probabilities can be chosen separately. An implementation can draw opponents from any distribution $\br$ over the arms and weight each game by the importance ratio of its arm, $1/r_{\mathrm{sp}}$ for self-play and $w_i/r_i$ for member $i$; the expected update is then exactly that of \eqref{eq:P}. We draw opponents from the weights themselves, $\br\propto(\bw_P,\wsp)$, with a floor on the self-play arm that bounds its importance ratio. Sampling in proportion to the coefficients, $\br=(\bw_P,1)/t_k$, would cap the pool's share of the games at $(1-\wsp)/(2-\wsp)\le\tfrac12$ and leave few games for estimating the loss rates of exactly the members that hold weight.
+Because the coefficients $(\bw_P,1)$ define the training objective rather than the sampling distribution, an implementation can draw opponents from any distribution $\br$ over the arms and weight each game by its importance ratio ($1/r_{\mathrm{sp}}$ for self-play and $w_i/r_i$ for member $i$), leaving the expected update unchanged. We sample directly from $(\bw_P,\wsp)$ with a small floor on self-play, so active pool members receive games in proportion to their weights rather than being capped at half the games.
 
 % ----------------------------------------------------------------------
 \section{Theoretical Analysis}
@@ -292,7 +288,7 @@ The coefficients describe the training objective, and the sampling probabilities
 This section analyzes the exact algorithm: every step solves \eqref{eq:P} exactly on the normal form of \S\ref{sec:prelim}, and the pool $P_k$ may change arbitrarily between steps. Table~\ref{tab:guarantees} summarizes the results. \S\ref{sec:energy} proves the inequality on which all of them rest, \S\ref{sec:conv} derives convergence, certificates, and rates, \S\ref{sec:oracle-rate} quantifies what an oracle adds, and \S\ref{sec:inexact} treats mixtures and inexact steps.
 
 \begin{table}[t]
-\caption{Guarantees for the exact algorithm. $K$ is the number of steps, and $n$ is the number of most recent steps over which the pool has not changed.}
+\caption{Summary of theoretical guarantees for exact \codar{}.}
 \label{tab:guarantees}
 \begin{center}
 \footnotesize
@@ -302,11 +298,11 @@ This section analyzes the exact algorithm: every step solves \eqref{eq:P} exactl
 Object & Guarantee & Condition on the pool & Result \\
 \midrule
 Learner $\bx_k$ & converges to a Nash strategy & any sequence of pools & Theorem~\ref{thm:conv} \\
-Learner $\bx_k$ & $\min_{k<K}\Expl(\bx_{k+1})=O(K^{-1/2})$ & any sequence of pools & Theorem~\ref{thm:rate} \\
-Learner $\bx_K$ & $\Expl(\bx_K)=O(n^{-1/4})$ & unchanged for $n$ steps & Theorem~\ref{thm:rate} \\
+Learner $\bx_k$ & $\min_{k<K}\Expl(\bx_{k+1})=O(K^{-1/2})$ over $K$ steps & any sequence of pools & Theorem~\ref{thm:rate} \\
+Learner $\bx_K$ & $\Expl(\bx_K)=O(n^{-1/4})$ & unchanged over last $n$ steps & Theorem~\ref{thm:rate} \\
 Learner $\bx_{k+1}$ & $\Expl(\bx_{k+1})\le\tfrac12a+\eta D\|\dx_k\|$, observable in training & any pool & Theorem~\ref{thm:cert} \\
 Learner $\bx_{k+1}$ & squared distance to every Nash strategy falls by $\tfrac{c}{4\eta}[\Expl(\bx_k)-\varepsilon]^{+2}$ & contains an $\varepsilon$-best response to $\bx_k$ & Theorem~\ref{thm:oracle} \\
-Time average $\bar{\bq}_K$ & $\Expl(\bar{\bq}_K)\le\eta/K$ & any sequence of pools & Proposition~\ref{prop:mix} \\
+Time average $\bar{\bq}_K$ & $\Expl(\bar{\bq}_K)\le\eta/K$ over $K$ steps & any sequence of pools & Proposition~\ref{prop:mix} \\
 All of the above & same bounds with additive error terms & inexact steps & Theorem~\ref{thm:inexact} \\
 \bottomrule
 \end{tabular}
@@ -318,8 +314,8 @@ All of the above & same bounds with additive error terms & inexact steps & Theor
 
 Fix a step $k$ and abbreviate $\bx:=\bx_{k+1}$, $\bw:=\bw(\bx)$, and $\bv:=\bv_{k+1}$; recall that $\dx_k=\bx_{k+1}-\bx_k$ is the step. Two scalars summarize the pool at $\bx$, the total \emph{pool weight} $a$ and the \emph{pool pressure} $b$:
 \[
-a(\bx):=1-\wsp=\textstyle\sum_{i\in P}w_i,\qquad
-b(\bx):=\textstyle\sum_{i\in P}w_i\big(\ell_i(\bx)-\tfrac12\big).
+a(\bx):=1-\wsp=\sum_{i=1}^Nw_i,\qquad
+b(\bx):=\sum_{i=1}^Nw_i\big(\ell_i(\bx)-\tfrac12\big).
 \]
 The pressure adds up the leads of the pool members, each multiplied by its weight. By Lemma~\ref{lem:dual}(b), every member holding weight has $\ell_i>\tfrac12$, so $b\ge0$. Direct expansion gives two identities:
 \begin{equation}
@@ -403,7 +399,7 @@ Let $D=\sqrt2$. (i) Full-game certificate for the learner:
 \]
 (ii) In-pool certificate:
 \[
-\Big[\max_{i\in P}\ell_i(\bx_{k+1})-\tfrac12\Big]^+\ \le\ \frac{\sqrt2}{c}\,\|\bw(\bx_{k+1})-\esp\|+\eta D\|\dx_k\| .
+\Big[\max_{1\le i\le N}\ell_i(\bx_{k+1})-\tfrac12\Big]^+\ \le\ \frac{\sqrt2}{c}\,\|\bw(\bx_{k+1})-\esp\|+\eta D\|\dx_k\| .
 \]
 \end{theorem}
 The proof (Appendix~\ref{app:cert}) inserts a best response to $\bx_{k+1}$ as the test point in \eqref{eq:P}. Moving toward it lowers the self-play term by exactly $\Expl(\bx_{k+1})$, so the pool term and the proximal term have to compensate, and both are bounded by observable quantities: the pool weight $a$, the distance $\|\bw-\esp\|$ from pure self-play, and the length $\|\dx_k\|$ of the step.
@@ -443,13 +439,11 @@ with $\varepsilon=0$ for an exact best response; the other members are arbitrary
 \|\bx_{k+1}-\xs\|^2\ \le\ \|\bx_k-\xs\|^2-\frac{c}{4\eta}\,\Big(\big[\Expl(\bx_k)-\varepsilon\big]^+\Big)^2 .
 \]
 \end{theorem}
-The proof is in Appendix~\ref{app:oracle} and runs on the budget of Theorem~\ref{thm:energy}. By Lemma~\ref{lem:B}, the pool pressure $b$ is paid for by movement toward $\xs$. An exploiter that leads the learner by $\mu$ receives at least the single-member weight $\tfrac{c\mu}2$ of Lemma~\ref{lem:dual}(c), since other members can only lower the self-play weight, so Lemma~\ref{lem:A} gives $b\ge\tfrac c4\mu^2$. The proximal step changes this lead by at most $\|S\|\,\|\dx_k\|$, and the condition $c\|S\|^2\le2\eta$ absorbs the change into the movement term of the energy inequality. The condition $c\le4$ keeps $\tfrac{c\mu}2$ below 1 for any lead; in games with a wide payoff range, where normalized leads are small, the same holds for much larger $c$. From another angle, when $\by_k$ is an exact best response, $S\by_k$ is a subgradient of $\Expl$ at $\bx_k$, so the oracle adds a descent direction on exploitability to a self-play term that only rotates around the equilibrium.
+The proof is in Appendix~\ref{app:oracle} and builds on the energy budget of Theorem~\ref{thm:energy}. An exploiter leading $\bx_{k+1}$ by $\mu$ receives at least the single-member weight $\tfrac{c\mu}2$ of Lemma~\ref{lem:dual}(c), because additional members can only lower the self-play weight; Lemma~\ref{lem:A} then gives $b\ge\tfrac c4\mu^2$, and Lemma~\ref{lem:B} converts $b$ into progress toward $\xs$, while $c\|S\|^2\le2\eta$ absorbs the change in lead across the step $\dx_k$. Geometrically, when $\by_k$ is an exact best response, $S\by_k$ is a subgradient of $\Expl$ at $\bx_k$, adding a descent direction on exploitability to a self-play field that otherwise rotates around the equilibrium. (Here $c\le4$ expresses the non-saturation condition $\tfrac{c\mu}2\le1$ for $\mu\le\tfrac12$; in games whose normalized leads satisfy $\mu\le\bar\mu<\tfrac12$, the bound holds for any $c\le2/\bar\mu$.)
 
-The theorem separates two roles of the oracle. Its error $\varepsilon$ sets how low it can push exploitability: once $\Expl(\bx_k)\le\varepsilon$, its members need not lead the learner and may receive no weight, and what remains is proximal self-play. The ratio $c/\eta$ sets how fast it pushes above that level. For comparison, with an empty pool $b=0$ and the decrease per step is only $\|\dx_k\|^2$. When the Nash strategy is interior, the self-play term is orthogonal to $\bx-\xs$ and this decrease is of second order in $1/\eta$. In rock--paper--scissors near the equilibrium, for example, the projection is inactive, the deviation $\bg_k:=\bx_k-\xs$ satisfies $(I+\tfrac1\eta S)\bg_{k+1}=\bg_k$, and the eigenvalues $\pm\mathrm i\sqrt3/2$ of $S$ on the plane $\mathbf 1^\top\bg=0$ give $\|\bg_{k+1}\|^2=\|\bg_k\|^2/(1+\tfrac{3}{4\eta^2})$. With an exact best response in the pool, the theorem guarantees a decrease of $\tfrac{c}{4\eta}\Expl(\bx_k)^2$, of first order in $1/\eta$. PPO takes small steps per outer iteration, which corresponds to large $\eta$, where this difference is largest. When the Nash strategy lies on the boundary of the simplex, the projection also contracts at first order and the gap is smaller.
+Theorem~\ref{thm:oracle} explains how a strong pool speeds up training relative to pure regularized self-play. With an empty pool ($b=0$), the per-step decrease in $\|\bx_k-\xs\|^2$ is only $\|\dx_k\|^2$. Near an interior Nash strategy, $S\bx$ is orthogonal to $\bx-\xs$ and this decrease is of second order, $O(1/\eta^2)$ (for instance, in rock--paper--scissors near equilibrium, $\|\bx_{k+1}-\xs\|^2=\|\bx_k-\xs\|^2/(1+\tfrac{3}{4\eta^2})$). With an $\varepsilon$-best response in the pool, the decrease is $\tfrac{c}{4\eta}([\Expl(\bx_k)-\varepsilon]^+)^2$, which is first order in $1/\eta$ down to the oracle accuracy $\varepsilon$; this gap is largest in the small-step (large-$\eta$) regime used by PPO. Moreover, unlike fixed-share rules such as PFSP, uniform weighting, or Hedge, the threshold projection drops the weight on exploiters to zero once they tie the learner at equilibrium, so the update still vanishes at Nash (\S\ref{sec:exp-theory}).
 
-The proof relies on the threshold form of the projection and on Lemma~\ref{lem:A}. Rules that keep a fixed share of the weight on the pool, such as PFSP, uniform weights, or Hedge, keep weight on exploiters that tie the learner at the equilibrium, so their update does not vanish there and the learner does not stop at a Nash strategy (\S\ref{sec:exp-theory}).
-
-An exploiter also provides evidence. For any opponent $\hat\by$, $[\ell(\bx;\hat\by)-\tfrac12]^+\le\Expl(\bx)$, so the measured lead of every exploiter is a lower bound on the exploitability of the learner. This bound is available in games that are too large for a full-tree best response, and \S\ref{sec:exp-neural} checks its calibration.
+Finally, any exploiter $\hat\by$ provides an empirical lower bound $[\ell(\bx;\hat\by)-\tfrac12]^+\le\Expl(\bx)$ without traversing the game tree (\S\ref{sec:exp-neural}).
 
 \subsection{Mixtures and Inexact Steps}
 \label{sec:inexact}
@@ -479,7 +473,7 @@ Let $a=a_{k+1}$ be the pool weight under the actual weights. The energy inequali
 the two certificates of Theorem~\ref{thm:cert} become
 \begin{align*}
 \Expl(\hat \bx_{k+1})&\ \le\ \tfrac12a+\eta D\|\dx_k\|+\delta_k+a\,\xi_k,\\
-\Big[\max_{i\in P}\ell_i(\hat \bx_{k+1})-\tfrac12\Big]^+&\ \le\ \tfrac{\sqrt2}{c}\|\bw_{k+1}-\esp\|+\eta D\|\dx_k\|+\delta_k+2\xi_k,
+\Big[\max_{1\le i\le N}\ell_i(\hat \bx_{k+1})-\tfrac12\Big]^+&\ \le\ \tfrac{\sqrt2}{c}\|\bw_{k+1}-\esp\|+\eta D\|\dx_k\|+\delta_k+2\xi_k,
 \end{align*}
 and the mixture bounds of Proposition~\ref{prop:mix} become
 \[
@@ -536,7 +530,7 @@ whose right-hand side can be zero or negative, so a tied pool ($b=0$) can keep i
 We implement \codar{} on proximal policy optimization (PPO)~\citep{schulman2017ppo}. One step $k$ of the exact algorithm corresponds to an \emph{outer step} of several rollouts, at the end of which the policy anchor is moved to the current learner. Within an outer step, each exact object is replaced by an approximation whose error enters $\xi_k$, $\delta_k$, or $\varepsilon$ (Table~\ref{tab:impl}). The learner remains an unmodified PPO learner; what changes is which opponents it faces, how its games are weighted, and a proximal term added to the reward. Appendix~\ref{app:impl} gives all settings.
 
 \begin{table}[t]
-\caption{From the exact algorithm to the PPO implementation, and the error term of \S\ref{sec:inexact} that each approximation enters.}
+\caption{PPO approximations to the components of exact \codar{}.}
 \label{tab:impl}
 \begin{center}
 \footnotesize
@@ -557,7 +551,7 @@ Oracle & PPO exploiter trained against the frozen learner on a fixed schedule & 
 \end{center}
 \end{table}
 
-Two differences from the analysis lie outside these error terms. The proximal term measures the distance between policies by the Kullback--Leibler (KL) divergence, as in R-NaD, whereas the analysis is Euclidean on the simplex of mixed strategies, and the error $\delta_k$ of a neural policy update has no known bound. The guarantees of \S\ref{sec:theory} are therefore statements about the exact algorithm, and \S\ref{sec:exp} evaluates the implementation empirically. Of the quantities in the certificates of Theorem~\ref{thm:cert}, the pool weight $a$ and the distance $\|\bw-\esp\|$ are read off exactly during training, while the step length $\|\dx_k\|$ has only a KL proxy. We therefore use the certificates as training diagnostics and take the exploiter lower bound of \S\ref{sec:oracle-rate} as the measured evidence of exploitability.
+As in R-NaD, the proximal penalty is implemented on behavior policies by Kullback--Leibler (KL) reward shaping toward the policy anchor. During training, the pool weight $a$ and the dual distance $\|\bw-\esp\|$ in Theorem~\ref{thm:cert} are read off directly as convergence diagnostics, while the exploiter lower bound $[\ell(\hat\bx;\hat\by)-\tfrac12]^+$ of \S\ref{sec:oracle-rate} provides a direct empirical lower bound on exploitability without a full-tree traversal.
 
 % ----------------------------------------------------------------------
 \section{Experiments}
@@ -569,41 +563,41 @@ The experiments answer three questions. Do the inequalities of \S\ref{sec:theory
 \subsection{The Exact Algorithm on Matrix Games}
 \label{sec:exp-theory}
 
-We run the exact algorithm on random skew-symmetric, cyclic, spinning-top~\citep{czarnecki2020spinning}, and Blotto-type matrix games with up to 64 pure strategies, solve each implicit step to high precision, and check every inequality of \S\ref{sec:theory} at every step. In about $10^8$ per-step records there is not a single violation, while variants that break one design element violate the energy inequality tens of millions of times. Four further results concern the design (Appendix~\ref{app:theory-figs}).
+We first verify the exact algorithm on random skew-symmetric, cyclic, spinning-top~\citep{czarnecki2020spinning}, and Blotto-type matrix games, solving each implicit step to high precision and checking every inequality of \S\ref{sec:theory} at every step. Across about $10^8$ per-step records there is not a single violation, whereas variants that break any one design element violate the energy inequality tens of millions of times (Appendix~\ref{app:theory-figs}).
 
-\textbf{Fixed versus moving anchor.} The moving anchor gets stuck at non-Nash points, and the fixed anchor never does. Started at the counterexample of Proposition~\ref{prop:rps}, the fixed anchor converges to $10^{-11}$ within 100 steps, while the moving anchor stays at $\Expl=0.25$ with self-play coefficient 1 and at $0.5$ with coefficient $\wsp$. From 44{,}800 random starts without an oracle, the moving anchor gets stuck in 13.8\% of runs (32\% on cyclic games). Estimation noise ($\xi=0.05$) or an oracle frees it in almost all runs, which is consistent with the neural ablation of \S\ref{sec:exp-abl}.
+\textbf{Fixed versus moving anchor.} Started at the counterexample of Proposition~\ref{prop:rps}, the fixed anchor converges to $10^{-11}$, whereas the moving anchor remains stuck at a non-Nash fixed point. Across random starts without an oracle, the moving anchor gets stuck in 13.8\% of runs (32\% on cyclic games), while the fixed anchor never gets stuck.
 
-\textbf{Necessity.} The implicit self-play opponent and the positive self-play coefficient are both needed. With the previous policy as the self-play opponent, exploitability stalls near 0.1; with self-play coefficient 0, all 10 runs get stuck at non-Nash points.
+\textbf{Necessity.} Both the implicit self-play opponent and the positive self-play coefficient are necessary: replacing the self-play opponent by the previous policy $\bx_k$ stalls near $\Expl=0.1$, and setting the self-play coefficient to 0 gets stuck at non-Nash points in every run.
 
-\textbf{Adversarial pools.} \codar{} converges on pools chosen by an adversary, and rules with a fixed share do not. When an adversary chooses the pool members (stale best responses, a flood of random strategies, pure strategies on the Nash support that always tie, or the reflection of the learner about the Nash point), \codar{} reaches about $10^{-11}$ in every setting, and its worst single run ends at $5.6\times10^{-7}$. PFSP, uniform, and Hedge weights on the same pools stop between $10^{-2}$ and $0.12$ and keep 23--50\% of the training weight on members that do not beat the learner.
+\textbf{Adversarial pools.} When an adversary constructs the pool (stale best responses, random-strategy floods, pure strategies on the Nash support that always tie, or reflections of the learner about the Nash point), \codar{} still converges to $10^{-11}$. On the same pools, PFSP, uniform, and Hedge weights keep 23--50\% of the training weight on members that do not beat the learner and stall between $10^{-2}$ and $0.12$.
 
 \begin{figure}[t]
 \begin{center}
 \includegraphics[width=0.92\linewidth]{figures/theory_oracle_rate.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{Effect of a best-response oracle on the exact algorithm (10 games per family). Top: final exploitability against $\eta$ (median and interquartile range). Bottom: exploitability over steps at $\eta=16$. Proximal self-play is \codar{} with an empty pool; PFSP and uniform FSP use the same pool as \codar{}.}
+\caption{Convergence of exact \codar{} with and without a best-response oracle on matrix games.}
 \label{fig:oracle-rate}
 \end{figure}
 
-\textbf{Oracle speed-up.} A best-response oracle speeds up \codar{} as Theorem~\ref{thm:oracle} predicts (Figure~\ref{fig:oracle-rate}). With the exact best response to the policy anchor added at every step, the inequality of the theorem holds at every step of all 240 \codar{} runs. For every $\eta\ge4$ and all three game families, \codar{} ends at a lower exploitability than the empty pool, for example $4\times10^{-6}$ against $10^{-3}$ on random $16\times16$ games at $\eta=16$; at $\eta=1$ both reach the numerical floor. PFSP and uniform weights with the same pool stall near $10^{-2}$ at small $\eta$, because they keep a fixed share on exploiters that tie the learner at the equilibrium. An oracle with error $0.01$ helps only while exploitability is above the scale of its error and ends close to the empty pool, as the theorem suggests. The one exception to the ordering is spinning-top games at $\eta=64$, where PFSP and uniform weights end lower ($1.5\times10^{-4}$ and $9.5\times10^{-5}$ against $7.6\times10^{-4}$).
+\textbf{Oracle speed-up.} Adding the best response to the policy anchor at every step accelerates \codar{} as predicted by Theorem~\ref{thm:oracle} (Figure~\ref{fig:oracle-rate}). The single-step bound of Theorem~\ref{thm:oracle} holds at every step of every run, and for every $\eta\ge4$ across all three game families \codar{} finishes well below empty-pool proximal self-play (e.g., $4\times10^{-6}$ vs.\ $10^{-3}$ on random games at $\eta=16$). On the same pool, PFSP and uniform weighting stall near $10^{-2}$ at small $\eta$ because they retain a fixed weight share on exploiters that tie at equilibrium, whereas an approximate oracle ($\varepsilon=0.01$) accelerates training down to the scale of its error before matching empty-pool self-play.
 
 \subsection{Matched-Budget Comparison}
 \label{sec:exp-neural}
 
-We compare \codar{} with seven baselines on Leduc poker~\citep{southey2005bayesbluff}, Goofspiel(4)~\citep{ross1971goofspiel}, and Liar's Dice with one die each~\citep{lisy2015oos} in OpenSpiel~\citep{lanctot2019openspiel}. The single-network baselines are PPO self-play; two regularized self-play methods, \rnad{} and MMD-PPO, which implement the proximal term as reward shaping and as a KL loss; and two pool methods, uniform fictitious self-play (FSP) and PFSP. The pool methods share the pool, the oracle, the loss estimator, and the policy update with \codar{} and differ only in the rule that maps loss estimates to weights, so \codar{} versus PFSP isolates the weight rule. The mixture baselines are PSRO with PPO best responses and Neural Fictitious Self-Play (NFSP)~\citep{heinrich2016nfsp}. We also run \codar{} without an oracle and, as upper-bound controls, \codar{}, PFSP, and PSRO with an exact best-response (BR) oracle that consumes no games. All PPO methods share the network and the PPO hyperparameters, and every method is tuned by the same two-stage protocol on held-out seeds (Appendix~\ref{app:impl}). Each run has a budget of $B=4\times10^6$ games, which counts every game a method consumes, including exploiter training and evaluation. We report exact full-tree exploitability, in chips for Leduc and in units of the $\pm1$ payoff for the other games, and summarize each run by its \emph{tail exploitability}, the mean over the last 20\% of the budget. Tables give the interquartile mean (IQM) with a bootstrap 95\% confidence interval (CI) over 10 seeds~\citep{agarwal2021precipice}, together with per-seed paired differences.
+We compare \codar{} with seven baselines on Leduc poker~\citep{southey2005bayesbluff}, Goofspiel(4)~\citep{ross1971goofspiel}, and Liar's Dice~\citep{lisy2015oos} in OpenSpiel~\citep{lanctot2019openspiel}. The single-network baselines are PPO self-play, two regularized self-play methods implemented on PPO (\rnad{} and MMD-PPO), and two pool methods (uniform fictitious self-play, FSP~\citep{heinrich2015fsp}, and PFSP) that share the pool, oracle, loss estimator, and policy update with \codar{} and differ only in the weight rule. The mixture baselines are PSRO (with PPO best responses) and Neural Fictitious Self-Play (NFSP)~\citep{heinrich2016nfsp}. To isolate the effect of oracle quality, we also evaluate \codar{} without an oracle and run \codar{}, PFSP, and PSRO with an exact best-response (BR) oracle. All PPO methods share the network architecture and PPO hyperparameters, and every method is tuned under the same two-stage protocol on held-out seeds at a matched budget of $B=4\times10^6$ total games, counting learner, exploiter, and evaluation games (Appendix~\ref{app:impl}). We report \emph{tail exploitability}—the mean exact full-tree exploitability over $[0.8B,B]$—via the interquartile mean (IQM) and bootstrap 95\% confidence interval (CI) across 10 seeds~\citep{agarwal2021precipice}.
 
 \begin{figure}[t]
 \begin{center}
 \includegraphics[width=0.95\linewidth]{figures/main_curves.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{Exact exploitability during training (seed mean and 95\% CI, 10 seeds). Top: single networks. Bottom: mixtures, with the \codar{} learner repeated for reference. The gray band marks the last 20\% of the budget.}
+\caption{Exact exploitability over training on the three main games (10 seeds).}
 \label{fig:main}
 \end{figure}
 
 \begin{table}[t]
-\caption{Tail exploitability at a matched budget (IQM [95\% CI] over 10 seeds; lower is better). Bold: best single network per game. The exact-BR rows are upper-bound controls. Further metrics are in Appendix Table~\ref{tab:main-full}.}
+\caption{Tail exploitability at budget $B=4\times10^6$ (IQM [95\% CI], 10 seeds; bold: best single network).}
 \label{tab:main}
 \begin{center}
 \scriptsize
@@ -633,7 +627,7 @@ PSRO, exact BR & mixture & $<10^{-15}$ & 0.108 [0.106, 0.115] & 0.172 [0.168, 0.
 \end{table}
 
 \begin{table}[t]
-\caption{Per-seed paired differences in tail exploitability (first minus second; IQM [95\% CI]), with the number of seeds out of 10 on which the first is better.}
+\caption{Paired differences in tail exploitability (IQM [95\% CI] and seeds won out of 10).}
 \label{tab:paired}
 \begin{center}
 \scriptsize
@@ -655,23 +649,19 @@ $\bar{\bq}$ $-$ NFSP & $-0.106$ [$-0.146$, $-0.091$] (10) & $+0.178$ [$+0.128$, 
 \end{center}
 \end{table}
 
-Among single networks, \codar{} has the lowest tail exploitability on Goofspiel(4) and Leduc poker (Tables~\ref{tab:main} and~\ref{tab:paired}). It beats \rnad{}, MMD-PPO, and \codar{} without an oracle on all 10 seeds in both games, and its tail exploitability is 73\% and 36\% below that of \rnad{}. Against PFSP, which differs only in the weight rule, it is better on 10/10 seeds on Goofspiel(4) and 7/10 on Leduc. On Liar's Dice it beats \rnad{}, MMD-PPO, and PFSP and is second to uniform FSP, with a paired difference whose CI includes zero.
+Among single networks, \codar{} achieves the lowest tail exploitability on Goofspiel(4) and Leduc poker (Tables~\ref{tab:main} and~\ref{tab:paired}). It beats \rnad{}, MMD-PPO, and \codar{} without an oracle on all 10 seeds in both games, cutting the tail exploitability of \rnad{} by 73\% and 36\%. Against PFSP, which differs only in the weight rule, \codar{} wins on 10/10 seeds on Goofspiel(4), 7/10 on Leduc, and 10/10 on Liar's Dice, with paired CIs strictly below zero on all three games. On Liar's Dice it outperforms \rnad{}, MMD-PPO, and PFSP and places second to uniform FSP, with their paired CI including zero.
 
-Methods without a pool degrade after an early optimum, and \codar{} largely holds its level (Figure~\ref{fig:main}). On Goofspiel(4) and Leduc, the methods without a pool reach their lowest exploitability within the first 10\% of the budget and end 0.7--1.1 above it, while \codar{} ends 0.25--0.36 above its lowest point (Appendix Table~\ref{tab:degradation}). Without the oracle, \codar{} loses most of its gain on these two games, so the gain comes from the exploiters that enter the pool. The remaining spikes of \codar{}, with a worst tail exploitability of 0.80 on Goofspiel(4), are due to loss estimates that lag behind abrupt jumps of the true loss rates: 14 of the 17 vulnerabilities detected there had weight below 0.01 when they opened, and exact member losses lower the tail exploitability in the ablation of \S\ref{sec:exp-abl}.
+Pool-free methods degrade substantially after an early peak, whereas \codar{} holds its performance (Figure~\ref{fig:main}, Appendix Table~\ref{tab:degradation}): on Goofspiel(4) and Leduc, pool-free baselines peak within the first 10\% of the budget and then degrade by 0.7--1.1, while \codar{} stays within 0.25--0.36 of its best checkpoint. Removing the oracle eliminates most of this improvement, showing that admitted exploiters drive the gain. Substituting an exact-BR oracle further lowers \codar{}'s tail exploitability on all three games (to 0.215, 0.885, and 0.269). Under exact BRs on Leduc, PFSP reaches a lower value (0.709): normalizing over Leduc's 26-chip payoff span shrinks the normalized leads $\mu$, so PFSP's fixed 50\% pool share assigns more weight to the exact BR than $\tfrac{c\mu}2$.
 
-A stronger oracle helps \codar{} on Liar's Dice ($0.355\to0.269$) and changes little on the other two games. With exact best responses, PFSP is ahead on Leduc (0.709 against 0.885): an exploiter's lead there is a small fraction of the 26-chip payoff range, so the weight $c\mu/2$ stays small, whereas PFSP gives the pool a fixed half of the training weight.
-
-The time average $\bar{\bq}$ of the same \codar{} run is competitive with the dedicated mixture methods. It only requires storing one snapshot per outer step, and it beats PSRO with the same PPO best responses on Leduc (8/10 seeds) and Liar's Dice (10/10) and comes close on Goofspiel(4) (0.011 against 0.004); NFSP is better on Leduc. The single learner stays above these mixtures on all three games.
-
-Exploiter leads give calibrated lower bounds on exploitability. Each oracle admission yields the bound $[\ell(\hat\bx;\hat\by)-\tfrac12]^+$ of \S\ref{sec:oracle-rate}, estimated from evaluation games. Over 3950 admissions in the main runs, the one-sided 95\% confidence bound exceeded the true exploitability 3 times, and it was positive, i.e., informative, 2487 times.
+The time average $\bar{\bq}$ of the same \codar{} run—storing one snapshot per outer step—also competes well with dedicated mixture methods, beating PSRO (PPO BR) on Leduc (8/10 seeds) and Liar's Dice (10/10) while remaining low on Goofspiel(4) (0.011 vs.\ 0.004). Finally, the empirical exploiter lower bound of \S\ref{sec:oracle-rate} is well calibrated across the main runs: its one-sided 95\% lower confidence bound is positive in 63\% of oracle admissions and exceeds true exploitability in under 0.1\% (Appendix~\ref{app:impl}).
 
 \subsection{Scaling to Large Games}
 \label{sec:exp-scale}
 
-We train six methods on 3$\times$3 abrupt Dark Hex and abrupt Phantom Tic-Tac-Toe, two imperfect-information games with about $2.7\times10^{10}$ nodes and $2.7\times10^{7}$ and $2.3\times10^{7}$ information sets, with the same budget and 5 seeds. The methods reuse the configurations selected on Goofspiel(4) without further tuning. Exploitability is computed exactly over the full tree with exp-a-spiel~\citep{rudolph2025reevaluating}, and the tail exploitability averages the checkpoints at $0.8B$, $0.9B$, and $B$.
+To test whether the method transfers without re-tuning to much larger game trees, we evaluate six methods on 3$\times$3 abrupt Dark Hex and abrupt Phantom Tic-Tac-Toe (TTT), each having about $2.7\times10^{10}$ game-tree nodes, over 5 seeds at budget $B=4\times10^6$ using the configurations selected on Goofspiel(4). Exact exploitability is computed with exp-a-spiel~\citep{rudolph2025reevaluating}.
 
 \begin{table}[t]
-\caption{Large games: tail exploitability (IQM [95\% CI], 5 seeds) and the per-seed paired difference \codar{} $-$ method, with the number of seeds out of 5 on which \codar{} is better.}
+\caption{Tail exploitability and paired differences on the two large games (IQM [95\% CI], 5 seeds).}
 \label{tab:scale}
 \begin{center}
 \scriptsize
@@ -693,19 +683,19 @@ PSRO (PPO BR) & mixture & 0.355 [0.290, 0.386] & $+0.092$ [$+0.010$, $+0.159$] (
 \end{center}
 \end{table}
 
-\codar{} has the lowest tail exploitability among single networks on Dark Hex and ties \rnad{} on Phantom Tic-Tac-Toe, where the two differ by 0.009 with a CI that includes zero (Table~\ref{tab:scale}). It matches the PSRO mixture on Phantom Tic-Tac-Toe and is 0.09 behind it on Dark Hex. PFSP, with the same pool and oracle, is much worse on both games (0.74 and 0.83), and self-play is almost fully exploitable. In a sampled round-robin among the final policies, \codar{} has the highest average score on Dark Hex (0.510) and is within 0.001 of the highest on Phantom Tic-Tac-Toe. Playing every checkpoint against its own earlier checkpoints shows that only self-play loses to its past selves, on 25--29\% of its checkpoints; for \codar{}, the worst lead of an earlier checkpoint, averaged over checkpoints, is 0.009 on Dark Hex and negative on Phantom Tic-Tac-Toe (Appendix Figure~\ref{fig:scale-history}).
+\codar{} achieves the lowest tail exploitability among single networks on Dark Hex and ties \rnad{} for best on Phantom Tic-Tac-Toe, matching the multi-network PSRO mixture on Phantom Tic-Tac-Toe as well (Table~\ref{tab:scale}). Using the exact same pool and oracle, PFSP degrades heavily on both games, and naive self-play remains near maximum exploitability. In head-to-head round-robin tournaments among final policies, \codar{} achieves the highest win rate on Dark Hex and ties for highest on Phantom Tic-Tac-Toe; testing checkpoints against their own earlier snapshots shows that only naive self-play cycles back to losing against its own past versions (Appendix Figure~\ref{fig:scale-history}).
 
 \subsection{What the Pool Buys}
 \label{sec:exp-mech}
 
-The main comparison mixes several effects. Four controlled experiments on Leduc and Goofspiel(4), with 6 seeds each and the configurations of the main comparison, separate them (settings and full tables in Appendix~\ref{app:mech}).
+To isolate how the pool and the weight rule work, we run four controlled experiments on Leduc and Goofspiel(4) across 6 seeds (protocols and full tables in Appendix~\ref{app:mech}).
 
 \begin{figure}[t]
 \begin{center}
 \includegraphics[width=0.78\linewidth]{figures/hidden_hole.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{Hidden vulnerabilities (6 seeds). Top: median number of rollouts to repair against the probability with which self-play opponents reach the planted vulnerability; points above the dotted line were not repaired. Bottom: probability of the planted action in the band with the lowest reach.}
+\caption{Repair of planted off-trajectory vulnerabilities on Leduc poker (6 seeds).}
 \label{fig:mech}
 \end{figure}
 
@@ -714,31 +704,31 @@ The main comparison mixes several effects. Four controlled experiments on Leduc 
 \includegraphics[width=0.78\linewidth]{figures/forgetting.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{Retention from a near-Nash start (IQM and 95\% CI, 6 seeds). Top: rise of exploitability over the starting network. Bottom: fraction of archived earlier versions that later beat the learner again.}
+\caption{Equilibrium retention from a near-Nash start on Goofspiel(4) (6 seeds).}
 \label{fig:retention}
 \end{figure}
 
-\textbf{Hidden vulnerabilities.} A pool repairs vulnerabilities that self-play almost never reaches. We distill the average strategy of counterfactual regret minimization (CFR+)~\citep{tammelin2014cfrplus} into a network and plant vulnerabilities at information sets that the learner itself reaches often but that self-play opponents reach with a controlled probability, from $[0.3,1)$ down to below $10^{-3}$. The pool holds only the exact best response to the damaged network, and \rnad{} trains without it. On Leduc (Figure~\ref{fig:mech}), the repair time of \rnad{} grows as the opponent reach falls, and in the lowest band, with reach about $2\times10^{-6}$, it repairs the vulnerability on none of 6 seeds within 256 rollouts. With the attacker in the pool, \codar{} repairs it on all 6 (median 21 rollouts), and so does PFSP (median 8.5). PFSP is faster because it gives the attacker a fixed coefficient of about 0.17, against 0.03--0.06 under \codar{}, whose weight follows the attacker's small lead of about 0.02. The fixed coefficient costs exploitability, which in the lowest band ends at 1.61 for PFSP against 1.30 for \codar{} and 1.81 for \rnad{}. On Goofspiel(4) no method repairs the lowest band, because the learner counters the deterministic attacker on other branches, and the attacker stops winning while the vulnerability stays open.
+\textbf{Hidden vulnerabilities.} To test whether a pool repairs weaknesses that self-play rarely visits, we start from a near-Nash network distilled from counterfactual regret minimization (CFR+)~\citep{tammelin2014cfrplus}, plant suboptimal actions at information sets frequently visited by the learner but reached by self-play opponents with decreasing probability, and place the exact best response to the damaged network in the pool. On Leduc (Figure~\ref{fig:mech}), pool-free \rnad{} repairs ever more slowly as opponent reach drops and fails on all 6 seeds in the lowest-reach band. Both \codar{} and PFSP repair all 6 seeds, and because \codar{} weights the attacker by its lead rather than enforcing a large fixed share, it finishes at lower overall exploitability (1.30 vs.\ 1.61 for PFSP and 1.81 for \rnad{}).
 
-\textbf{Retention.} A pool keeps a near-Nash network near Nash. Starting from the same distilled network without planted vulnerabilities (exploitability $3.8\times10^{-4}$ on Goofspiel(4) and $0.0088$ on Leduc), we train each method for $10^6$ more games. On Goofspiel(4) (Figure~\ref{fig:retention}), the methods without a pool lose the equilibrium almost entirely: exploitability rises by 0.98 for \rnad{}, 0.88 for MMD-PPO, and 1.00 for self-play. For \codar{} it rises by 0.14 [0.09, 0.30], less than for each method without a pool on all 6 seeds, and for PFSP by 0.28, so retention is a property of the pool. On Leduc every method drifts back to roughly its level in the main comparison, and \codar{} rises least (1.19 against 1.32--1.64; significant only against self-play). The drift is concentrated where self-play does not go. At information sets that self-play opponents reach with probability below $10^{-3}$, the per-visit loss relative to the start on Leduc is 0.0030 for \codar{} and 0.0040 for PFSP, against 0.0093--0.0157 for the methods without a pool, while the bands with higher reach are similar (Appendix Figure~\ref{fig:drift}). Hidden vulnerabilities and drift thus share one mechanism: self-play produces no gradient where it does not go, parameter sharing lets those parts of the policy drift, and pool members that do go there supply the missing signal. Cycling back to beaten versions is a separate effect that the proximal term alone already prevents: against an archive of its own earlier versions, only self-play (23\% of versions on Leduc) and MMD-PPO (6\%) lose to versions they had beaten. Halving or doubling $c$ leaves these results unchanged.
+\textbf{Retention.} To test whether a pool prevents equilibrium drift, we continue training from the undamaged CFR+ network (Figure~\ref{fig:retention}). On Goofspiel(4), pool-free methods lose the equilibrium almost completely (exploitability rises by 0.88--1.00), whereas \codar{} rises by only 0.14 (beating every pool-free method on all 6 seeds) and PFSP by 0.28, a result robust to halving or doubling $c$. Grouping information sets by opponent reach reveals the common cause of both phenomena: self-play produces no gradient on rarely visited branches, allowing parameter sharing to perturb actions there, whereas pool opponents that enter those branches supply the restoring signal (Appendix Figure~\ref{fig:drift}). Against an archive of past snapshots, proximal regularization alone already prevents cycling back to beaten versions.
 
-\textbf{Sleeper members.} \codar{} returns weight to a member as soon as it wins again and spends little training on members that no longer win. Weights that accumulate history, such as Hedge, leave a member that has been suppressed for $T$ rounds ``asleep'': it has to win for about $T$ more rounds to regain its weight. We place the exact best response to an \rnad{} base network in the pool together with three random-network decoys, let each rule suppress it for $T\in\{24,48,96,192\}$ rollouts, and then reset the learner to the base, which reopens the vulnerability. With \codar{}, the time to repair it again does not depend on $T$ (about 1 rollout on Goofspiel(4) and 3--6 on Leduc). Hedge needs 31.5 and 37.7 rollouts at $T=192$ (Appendix Figure~\ref{fig:sleeper}), and \rnad{} without a pool does not repair Leduc again within 96 rollouts at $T=192$. Members that do not beat the learner ($\ell\le0.51$) hold 0.6--1.5\% of the training weight under \codar{} on Goofspiel(4) and 11--13\% on Leduc, against 44--50\% for PFSP and Hedge and 28--35\% for fixed mixing. On Leduc the rules with a fixed share end at a lower tail exploitability in this setting (0.57--0.65 for PFSP and 0.48--0.59 for fixed mixing, against 0.72--0.81). The moving anchor behaves like \codar{} here, since its failure requires a tied pool.
+\textbf{Sleeper members.} To test recovery when an old vulnerability reopens, we place a best-response attacker and random decoys in the pool, let the learner suppress the attacker for $T$ rollouts, and then reset the learner to reopen the vulnerability. Because \codar{} is stateless, it repairs the reopened vulnerability within a few rollouts regardless of the suppression duration $T$, whereas history-accumulating Hedge suffers a growing sleeper delay exceeding 30 rollouts after long suppression (Appendix Table~\ref{tab:sleeper}, Figure~\ref{fig:sleeper}). Meanwhile, opponents not beating the learner draw minimal weight under \codar{}, compared with nearly half the training weight under PFSP and Hedge.
 
-\textbf{Open pools.} With a pool of external agents and no oracle, \codar{} keeps its training on the members that still beat the learner. With 4 to 64 external members (early CFR+ iterates, small legacy networks, scripted bots, the uniform policy, random networks, and duplicates), members that the learner already beats hold 0.3--1.1\% of the training weight under \codar{} on Goofspiel(4) and 4--6\% on Leduc, against 42--46\% under PFSP and 9--19\% under uniform FSP, independently of the pool size (Appendix Figure~\ref{fig:open-pool}). Exploitability under every rule then depends on what the pool members know, and this pool does not lower it reliably without an oracle.
+\textbf{Open pools.} To test robustness to weak external agents, we populate the pool with 4 to 64 heterogeneous opponents (early CFR+ iterates, small legacy networks, scripted bots, and random policies). Across all pool sizes, \codar{} keeps the total weight on already-beaten members to a few percent (under 1.1\% on Goofspiel(4) and 4--6\% on Leduc), whereas PFSP spends over 40\% of its training weight on them (Appendix Figure~\ref{fig:open-pool}).
 
 \subsection{Ablations}
 \label{sec:exp-abl}
 
-Appendix Figure~\ref{fig:ablations} changes one design element of \codar{} at a time ($10^6$ games, 6 seeds, paired against the base configuration). The oracle matters most: removing it raises the tail exploitability by 0.76 on Goofspiel(4) and 0.42 on Leduc. Freezing the pool weights for a whole outer step, which breaks the implicit pairing of \S\ref{sec:primal}, costs 0.38 and 0.15, and a pool capacity of 4 costs 0.32 and 0.24. Exact member losses ($\xi_k=0$) help on Goofspiel(4) ($-0.09$, 6/6 seeds), which identifies estimation lag as the main remaining error there, and doubling the oracle's share of the budget to 24\% helps on Leduc ($-0.20$, 5/6 seeds). The moving dual anchor, the sampling distribution, the refresh rate of the self-play opponent, and the KL form of the proximal term change the tail exploitability within the CIs at this budget; the failure of the moving anchor appears in the exact setting of \S\ref{sec:exp-theory}.
+Single-factor ablations on \codar{} (Appendix Figure~\ref{fig:ablations}) confirm three points. First, removing the oracle, freezing the pool weights across an outer step (breaking the implicit pairing of \S\ref{sec:primal}), or shrinking the pool capacity to 4 causes the largest degradation on both games. Second, replacing estimated loss rates with exact loss rates ($\xi_k=0$) further lowers tail exploitability on Goofspiel(4) (6/6 seeds), and doubling the oracle budget share lowers it on Leduc (5/6 seeds), pinpointing estimator lag and oracle strength as the primary sources of remaining approximation error. Third, the sampling distribution, self-play refresh rate, and KL proximal form remain within the CIs.
 
 % ----------------------------------------------------------------------
 \section{Related Work}
 \label{sec:related}
 % ----------------------------------------------------------------------
 
-Population methods keep a pool of opponents and place the equilibrium in a mixture. Double Oracle and PSRO~\citep{mcmahan2003doubleoracle,lanctot2017psro,muller2020generalized,mcaleer2020pipeline} solve a meta-game over the pool externally~\citep{wellman2006egta}, PFSP and league training~\citep{vinyals2019alphastar} allocate sampling proportions by win rate, and NFSP~\citep{heinrich2015fsp,heinrich2016nfsp} learns the historical average strategy with a separate network. What they deploy is a mixture of checkpoints or the average network. \codar{} uses the same kind of pool and oracle and keeps the guarantee on the network being trained.
+Population methods keep a pool of opponents and place the equilibrium in a mixture. Double Oracle (DO) and PSRO~\citep{mcmahan2003doubleoracle,lanctot2017psro,muller2020generalized,mcaleer2020pipeline} solve a meta-game over the pool externally~\citep{wellman2006egta}, PFSP and league training~\citep{vinyals2019alphastar} allocate sampling proportions by win rate, and NFSP~\citep{heinrich2015fsp,heinrich2016nfsp} learns the historical average strategy with a separate network. What they deploy is a mixture of checkpoints or the average network. \codar{} uses the same kind of pool and oracle and keeps the guarantee on the network being trained.
 
-Regularized self-play gives a guarantee for a single network, without a pool. R-NaD and MMD~\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd} use an anchor in payoff or policy space that moves periodically or is annealed, and optimistic and extragradient methods~\citep{daskalakis2018optimism,mertikopoulos2019omd,nemirovski2004prox,cen2021extragradient} stabilize similarly with an extrapolation term; both are explicit approximations~\citep{mokhtari2020ppa} of the proximal point method~\citep{rockafellar1976ppa}. They train only along the self-play trajectory, which is why OpenAI Five and AlphaStar also keep historical opponents~\citep{openai2019dota,vinyals2019alphastar,czarnecki2020spinning}. The policy update of \codar{} is the proximal point step itself, and with an empty pool \codar{} reduces to it.
+Regularized self-play gives a guarantee for a single network, without a pool. R-NaD and MMD~\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd} use an anchor in payoff or policy space that moves periodically or is annealed, and optimistic and extragradient methods~\citep{daskalakis2018optimism,mertikopoulos2019omd,nemirovski2004prox,cen2021extragradient} stabilize similarly with an extrapolation term; both are explicit approximations~\citep{mokhtari2020ppa} of the proximal point method~\citep{rockafellar1976ppa}. They train only along the self-play trajectory, which is why OpenAI Five and AlphaStar also keep historical opponents~\citep{openai2019dota,vinyals2019alphastar,czarnecki2020spinning}. The policy update of \codar{} is an implicit proximal point step for the monotone operator formed by adding the smooth convex pool penalty $\Psi_P$ to the skew-symmetric self-play operator, and with an empty pool \codar{} reduces to the proximal point method.
 
 Multiplicative weights accumulate history, which the stateless projection of \codar{} avoids. The meta-solvers of the PSRO family, namely Hedge, projected replicator dynamics, and the multiplicative weights update (MWU), and the opponent sampler of OpenAI Five mostly use multiplicative weights~\citep{lanctot2017psro,mcaleer2022anytime,dinh2022odo,openai2019dota,freund1999hedge}. After a member has been suppressed for $T$ rounds, it has to win for roughly another $T$ rounds to regain its weight even if it counters the learner again. This is the sleeper problem that Fixed Share-type algorithms address in online learning~\citep{herbster1998tracking}. Conversely, tied members keep positive weight indefinitely. Methods that deploy the time average are unaffected, but the last iterate of multiplicative weights does not converge in zero-sum games~\citep{bailey2018mwu}, and tied members that keep their weight can pin the learner at a non-Nash point (Proposition~\ref{prop:rps}). Appendix Table~\ref{tab:related} compares the methods.
 
@@ -746,7 +736,7 @@ Multiplicative weights accumulate history, which the stateless projection of \co
 \section{Conclusion}
 % ----------------------------------------------------------------------
 
-\codar{} trains a single network against itself and an open pool of opponents. Fixing the dual anchor at pure self-play and placing the moving anchor in the policy update makes policy movement and pool weight draw on one budget, the distance to equilibrium. For the exact algorithm, this gives last-iterate convergence of the trained policy for any sequence of pools, explicit rates, and a quantified gain from a best-response oracle. With PPO, at a matched budget and against baselines tuned by the same protocol, the \codar{} learner has the lowest tail exploitability among single networks on Goofspiel(4), Leduc poker, and 3$\times$3 abrupt Dark Hex, ties \rnad{} on abrupt Phantom Tic-Tac-Toe, and is second to uniform FSP on Liar's Dice. Controlled experiments show that the pool repairs vulnerabilities that self-play almost never reaches and keeps a near-Nash network in place, and that the weight rule returns weight to a reopened vulnerability at once and spends little training on members that no longer win. Because the weight follows an opponent's lead, small leads are repaired more slowly than under the fixed share of PFSP. Detecting small leads faster, a KL version of the Euclidean theory, and a last-iterate rate across pool changes are the main open directions.
+\codar{} trains a single network against itself and an open pool of opponents. Fixing the dual anchor at pure self-play and placing the moving anchor in the policy update makes policy movement and pool weight draw on one budget, the distance to equilibrium. For the exact algorithm, this gives last-iterate convergence of the trained policy for any sequence of pools, explicit rates, and a quantified per-step gain from a best-response oracle. With PPO, at a matched budget and against baselines tuned by the same protocol, the \codar{} learner achieves the lowest tail exploitability among single networks on Goofspiel(4), Leduc poker, and 3$\times$3 abrupt Dark Hex, ties \rnad{} for best on abrupt Phantom Tic-Tac-Toe, and is second to uniform FSP on Liar's Dice. Controlled experiments show that the pool repairs vulnerabilities that self-play rarely visits and keeps a near-Nash network from drifting, while the stateless weight rule restores weight to a reopened vulnerability immediately and assigns minimal weight to beaten opponents. Adaptive scaling of the dual strength for small leads, a Bregman (KL) extension of the Euclidean theory, and a last-iterate rate across pool changes are natural directions for future work.
 
 \subsubsection*{Reproducibility Statement}
 \S\ref{sec:prelim}--\ref{sec:alg} give all definitions of the algorithm, and \S\ref{sec:theory} together with Appendix~\ref{app:proofs} gives all proofs. \S\ref{sec:impl} and Appendix~\ref{app:impl} give the implementation, the evaluation protocol, the tuning grids, and every selected configuration. The source code includes the finite-dimensional solver and checks, the PPO implementation, all baselines, the experiment entry points with all configurations and seeds, and the scripts that generate every figure and table from the raw outputs; it is open source on the author's GitHub at \url{https://github.com/GICF-E/CoDA-R}.
@@ -770,7 +760,7 @@ The main text proves Lemmas~\ref{lem:A} and~\ref{lem:B} and Theorem~\ref{thm:ene
 
 Let $\bz:=\esp+c\aug(\bx)$, so that $\bw=\Proj_\simplex(\bz)$, and write $z_{\mathrm{sp}}=1+\tfrac c2$ for the self-play coordinate of $\bz$.
 
-(a) By the projection inequality, $\esp=\Proj_\simplex(\bz)$ if and only if $(\bz-\esp)^\top(\bu-\esp)\le0$ for all $\bu\in\simplex$. Since $\bz-\esp=c\aug$, the condition becomes $\aug^\top \bu\le\aug^\top \esp=\tfrac12$ for all $\bu$. A linear function attains its maximum over the simplex at a vertex, so this means $\max_j\tilde\ell_j\le\tfrac12$. The self-play coordinate is exactly $\tfrac12$, so this is equivalent to $\max_{i\in P}\ell_i\le\tfrac12$.
+(a) By the projection inequality, $\esp=\Proj_\simplex(\bz)$ if and only if $(\bz-\esp)^\top(\bu-\esp)\le0$ for all $\bu\in\simplex$. Since $\bz-\esp=c\aug$, the condition becomes $\aug^\top \bu\le\aug^\top \esp=\tfrac12$ for all $\bu$. A linear function attains its maximum over the simplex at a vertex, so this means $\max_j\tilde\ell_j\le\tfrac12$. The self-play coordinate is exactly $\tfrac12$, so this is equivalent to $\max_{1\le i\le N}\ell_i\le\tfrac12$.
 
 (b) Move a little weight from member $i$ to self-play by taking $\bu=\bw+\theta(\esp-\be_i)$ with $0<\theta\le w_i$, which remains in $\simplex$. The projection inequality gives
 \[
@@ -914,7 +904,7 @@ a(\bx)=1-\wsp\ \ge\ \operatorname{clip}(\tfrac{c\mu}2,0,1).
 \]
 Loss rates are at most 1, so $\mu\le\tfrac12$, and $c\le4$ gives $\tfrac{c\mu}2\le1$; therefore $a(\bx)\ge\tfrac c2\mu^+$.
 
-\textit{Step 2: the pool pressure is bounded below.} Lemma~\ref{lem:A} gives $b(\bx)\ge\tfrac1c\|\bw-\esp\|^2$, and $\|\bw-\esp\|^2=\sum_{i\in P}w_i^2+(1-\wsp)^2\ge a^2$. With Step 1,
+\textit{Step 2: the pool pressure is bounded below.} Lemma~\ref{lem:A} gives $b(\bx)\ge\tfrac1c\|\bw-\esp\|^2$, and $\|\bw-\esp\|^2=\sum_{i=1}^Nw_i^2+(1-\wsp)^2\ge a^2$. With Step 1,
 \[
 b(\bx)\ \ge\ \tfrac1c\,a(\bx)^2\ \ge\ \tfrac c4\,(\mu^+)^2 .
 \]
@@ -946,7 +936,7 @@ i.e., a pair that satisfies $L_k(\bx_{k+1},\brho)\le L_k(\bx_{k+1},\bw_{k+1})\le
 \label{prop:coda}
 For a fixed pool and exact steps, $\varphi(\brho_{k+1})\ge\varphi(\brho_k)+\tfrac1{2c}\|\brho_{k+1}-\brho_k\|^2$, and hence $\sum_k\|\brho_{k+1}-\brho_k\|^2\le2c$. Moreover,
 \[
-\max_{i\in P}\ell_i(\bx_{k+1})-v^*\ \le\ \frac{\sqrt2}{c}\,\|\brho_{k+1}-\brho_k\|\ \longrightarrow\ 0 ,\qquad v^*-\varphi(\brho_K)\ \le\ \frac{1}{cK} .
+\max_{1\le i\le N}\ell_i(\bx_{k+1})-v^*\ \le\ \frac{\sqrt2}{c}\,\|\brho_{k+1}-\brho_k\|\ \longrightarrow\ 0 ,\qquad v^*-\varphi(\brho_K)\ \le\ \frac{1}{cK} .
 \]
 \end{proposition}
 \textit{Proof.} $L_k$ is affine in $\bx$ and strongly concave in $\brho$, and $X$ and $\simplex_N$ are convex and compact, so by the minimax theorem of \citet{sion1958} a saddle point exists, and since the regularizer does not depend on $\bx$ it can be pulled outside $\min_\bx$:
@@ -1027,7 +1017,7 @@ R-NaD / MMD & Single network & Moving anchor & Yes & No & No & Step length \\
 % ----------------------------------------------------------------------
 
 \begin{table}[!htbp]
-\caption{Settings of the PPO implementation of \codar{}. $n_i$ is the number of games that member $i$ received in the rollout.}
+\caption{Settings of the PPO implementation of \codar{}.}
 \label{tab:settings}
 \begin{center}
 \footnotesize
@@ -1038,7 +1028,7 @@ Component & Setting \\
 PPO & generalized advantage estimation~\citep{schulman2016gae} with $\lambda=0.95$ and $\gamma=1$; clipping 0.2; 4 epochs; minibatches of 256; value coefficient 0.5; gradient-norm clipping 1; constant learning rate $3\times10^{-4}$ \\
 Network & shared policy--value multilayer perceptron with two hidden layers of 128 units \\
 Schedule & a rollout is 512 games; an outer step is 32 rollouts \\
-Loss estimates & exponential moving average per member with step size $\beta_i=n_i/(n_i+64)$; the history is reset when the rollout mean deviates from the estimate by more than 2.5 standard errors \\
+Loss estimates & exponential moving average per member with step size $\beta_i=n_i/(n_i+64)$ ($n_i$: rollout games for member $i$); history reset when the rollout mean deviates from the estimate by more than 2.5 standard errors \\
 Sampling & opponents drawn from $(\bw_P,\wsp)$ with a floor of 0.1 on self-play; up to 25\% of the games probe zero-weight members whose upper confidence bound exceeds $\tfrac12$, and these games carry zero gradient weight \\
 Self-play opponent & frozen copy of the current parameters, refreshed every rollout \\
 Proximal term & R-NaD-style reward shaping toward the policy anchor, which moves at the end of each outer step \\
@@ -1050,11 +1040,11 @@ Entropy & coefficient decreases linearly from 0.03 to the tuned final value over
 \end{center}
 \end{table}
 
-\textbf{Implementation.} Table~\ref{tab:settings} lists the settings. After each rollout, the game outcomes update the loss estimates $\hat{\bell}$ and the weights are re-projected, so the pairing $\bw=\bw(\bx_{k+1})$ of \S\ref{sec:primal} is approached by alternating updates of the policy and the weights. Each game is weighted by the importance ratio of its arm, so the expected update follows the coefficients $(\bw_P,1)$. Probe games update the loss estimates only. The exact-BR control admits the full-tree best response on the same schedule as the PPO oracle.
+\textbf{Implementation.} Table~\ref{tab:settings} lists the settings. After each rollout, the game outcomes update the loss estimates $\hat{\bell}$ and the weights are re-projected, so the pairing $\bw=\bw(\bx_{k+1})$ of \S\ref{sec:primal} is approached by alternating updates of the policy and the weights. Each game is weighted by the importance ratio of its arm, so the expected update follows the coefficients $(\bw_P,1)$. Probe games update the loss estimates only. The exact-BR control admits the full-tree best response on the same schedule as the PPO oracle. Across the 3950 oracle admissions in the main runs, the one-sided 95\% lower confidence bound on $[\ell(\hat\bx;\hat\by)-\tfrac12]^+$ was positive 2487 times (63.0\%) and exceeded true exploitability only 3 times (0.08\%).
 
 \textbf{Budget and evaluation.} The budget counts every game a method consumes: learner games including probes, exploiter training, admission evaluation, pool sweeps, and PSRO meta-games. Since the entropy coefficient is constant after $0.8B$ games, the tail $[0.8B,B]$ is measured at a fixed entropy coefficient. Exploitability is evaluated at 12 log-spaced points before $0.8B$ and every 8 rollouts in the tail, and is held between evaluations. Besides the tail exploitability, we report the worst tail exploitability (the maximum over the tail) and the final exploitability (the value at $B$). Seeds 100--109 are used for the main comparison, 100--105 for the ablations and the controlled experiments, and 100--104 for the large games; tuning uses seeds 900--902, which enter no reported table.
 
-\textbf{Tuning.} Each tuned method has 9 configurations: 3 final entropy coefficients $\{0.01,0.003,0.001\}$ times 3 values of one method parameter ($\eta\in\{0.05,0.1,0.2\}$ for \rnad{} and MMD-PPO; learning rate $\{10^{-4},3\times10^{-4},10^{-3}\}$ for self-play; self-play share $\{0.5,0.8,0.9\}$ for uniform FSP; exponent $\{1,2,3\}$ for PFSP; $c\in\{12,24,48\}$ on Leduc and $\{3,6,15\}$ on the other games for \codar{}; best-response rollouts $\{10,20,40\}$ for PSRO). NFSP uses its anticipatory parameter $\{0.05,0.1,0.2\}$ times its learning rate $\{10^{-3},3\times10^{-3},10^{-2}\}$. Stage 1 runs every configuration with budget $B/4$ on the three tuning seeds, and stage 2 reruns the top two with the full budget and keeps the better one. Uniform FSP, PFSP, and \codar{} inherit $\eta$ from \rnad{}, so their policy updates are identical. The grid for $c$ on Leduc is larger because the 26-chip payoff range shrinks the leads after normalization. The large games reuse the Goofspiel(4) configurations. Some selections lie on a grid boundary, for example $c=48$ on Leduc and $c=3$ on Liar's Dice for \codar{}. Table~\ref{tab:tuning} lists the selected configurations.
+\textbf{Tuning.} Each tuned method has 9 configurations: 3 final entropy coefficients $\{0.01,0.003,0.001\}$ times 3 values of one method parameter ($\eta\in\{0.05,0.1,0.2\}$ for \rnad{} and MMD-PPO; learning rate $\{10^{-4},3\times10^{-4},10^{-3}\}$ for self-play; self-play share $\{0.5,0.8,0.9\}$ for uniform FSP; exponent $\{1,2,3\}$ for PFSP; $c\in\{12,24,48\}$ on Leduc and $\{3,6,15\}$ on the other games for \codar{}; best-response rollouts $\{10,20,40\}$ for PSRO). NFSP uses its anticipatory parameter $\{0.05,0.1,0.2\}$ times its learning rate $\{10^{-3},3\times10^{-3},10^{-2}\}$. Stage 1 runs every configuration with budget $B/4$ on the three tuning seeds, and stage 2 reruns the top two with the full budget and keeps the better one. Uniform FSP, PFSP, and \codar{} inherit $\eta$ from \rnad{}, so their policy updates are identical. The grid for $c$ on Leduc is larger because the 26-chip payoff range shrinks the leads after normalization. The large games reuse the Goofspiel(4) configurations. Table~\ref{tab:tuning} lists the selected configurations.
 
 \begin{table}[!htbp]
 \caption{Selected configurations (final entropy coefficient and method parameter).}
@@ -1087,7 +1077,7 @@ NFSP & 0.2, lr $10^{-2}$ & 0.2, lr $10^{-2}$ & 0.2, lr $10^{-2}$ \\
 \subsection{Matched-Budget Comparison}
 
 \begin{table}[!htbp]
-\caption{Further metrics of the matched-budget comparison (IQM over 10 seeds): worst tail exploitability / final exploitability. The current mixture $\bq$ and the time average $\bar{\bq}$ come from the same \codar{} runs.}
+\caption{Matched-budget comparison: worst tail exploitability / final exploitability (IQM, 10 seeds).}
 \label{tab:main-full}
 \begin{center}
 \footnotesize
@@ -1113,7 +1103,7 @@ PSRO (PPO BR) & mixture & 0.008 / 0.004 & 0.514 / 0.439 & 0.195 / 0.160 \\
 \end{table}
 
 \begin{table}[!htbp]
-\caption{Degradation from the lowest point of the run (seed medians): tail exploitability minus the lowest exploitability over all evaluation points, with the budget fraction at which the lowest point occurs in parentheses.}
+\caption{Degradation from best checkpoint on the three main games (seed medians).}
 \label{tab:degradation}
 \begin{center}
 \footnotesize
@@ -1137,7 +1127,7 @@ PFSP & 0.483 (0.937) & 0.610 (0.084) & 0.127 (0.810) \\
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/main_tail.pdf}
 \end{center}
-\caption{Tail exploitability per seed (dots) with IQM and 95\% CI, on a log scale. Rows: single networks, mixtures, and exact-BR controls.}
+\caption{Per-seed tail exploitability (dots) with IQM and 95\% CI.}
 \label{fig:main-tail}
 \end{figure}
 
@@ -1150,7 +1140,7 @@ Checkpoints are evaluated at the budget fractions $1/64$, $1/16$, $1/4$, $0.8$, 
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/scale_curves.pdf}
 \end{center}
-\caption{Exact exploitability on the large games (seed mean and 95\% CI, 5 seeds). The gray band marks the tail.}
+\caption{Exact exploitability on the large games (5 seeds).}
 \label{fig:scale}
 \end{figure}
 
@@ -1158,7 +1148,7 @@ Checkpoints are evaluated at the budget fractions $1/64$, $1/16$, $1/4$, $0.8$, 
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/scale_history.pdf}
 \end{center}
-\caption{Play against one's own earlier checkpoints on the large games. Top: the worst lead of an earlier checkpoint over a later one, averaged over checkpoints. Bottom: the fraction of checkpoints that were once beaten and later beat a newer checkpoint.}
+\caption{Performance against earlier checkpoints on the two large games.}
 \label{fig:scale-history}
 \end{figure}
 
@@ -1169,7 +1159,7 @@ Checkpoints are evaluated at the budget fractions $1/64$, $1/16$, $1/4$, $0.8$, 
 \textbf{Sleeper members.} The base network is \rnad{} trained for $2\times10^5$ games, the target member is its full-tree best response, and the three decoys are random networks. The pool follows the main protocol with the oracle switched off. After the reset, each branch trains for 96 more rollouts. Hedge and fixed mixing use the $\eta$ and entropy coefficient of \rnad{} with self-play share 0.5, and fixed mixing gives the target a coefficient of 0.35; the moving-anchor rule uses the configuration of \codar{}. The target counts as repaired when the learner's loss rate against it stays at most 0.52 for 3 consecutive rollouts (Table~\ref{tab:sleeper}, Figure~\ref{fig:sleeper}).
 
 \begin{table}[!htbp]
-\caption{Sleeper members: rollouts needed to repair the target again after the reset (IQM over 6 seeds; ``---'': not repaired within 96 rollouts) for suppression lengths $T=24/48/96/192$, and the share of the training weight held by members that do not beat the learner (range over $T$).}
+\caption{Sleeper members: re-repair rollouts ($T=24/48/96/192$) and idle weight share (IQM, 6 seeds).}
 \label{tab:sleeper}
 \begin{center}
 \footnotesize
@@ -1195,14 +1185,14 @@ Fixed mixing & 0 / 0 / 0.2 / 0 & 0.35 & 4 / 4.7 / 5.8 / 4.3 & 0.28--0.31 \\
 \begin{center}
 \includegraphics[width=0.8\linewidth]{figures/vuln_sleeper.pdf}
 \end{center}
-\caption{Sleeper members. Top: rollouts until the target regains half of the coefficient it had before the reset. Bottom: share of the training weight held by members that do not beat the learner.}
+\caption{Re-weighting delay and non-winning weight share on the sleeper-member test (6 seeds).}
 \label{fig:sleeper}
 \end{figure}
 
-\textbf{Hidden vulnerabilities.} The base is the average strategy of 2000 CFR+ iterations distilled into a network of the learner's size (maximum total variation 0.006--0.028 per information set). Each band holds up to 4 planted vulnerabilities, each at an information set that the learner reaches with probability at least 0.1 and where the planted action loses at least 0.05 in normalized score per visit. The pool holds only the exact best response to the damaged network, with the main protocol and the oracle switched off; \rnad{} only records its loss rate against the attacker. Each branch trains for 256 rollouts, and a vulnerability counts as repaired when the probability of the planted action stays at most 0.5 for 3 rollouts. The band $[0.3,1)$ on Leduc serves as a control, since its planted actions lose only 0.14 per visit and the attacker leads by 0.002 (Table~\ref{tab:hidden}).
+\textbf{Hidden vulnerabilities.} The base is the average strategy of 2000 CFR+ iterations distilled into a network of the learner's size (maximum total variation 0.006--0.028 per information set). Each band holds up to 4 planted vulnerabilities, each at an information set that the learner reaches with probability at least 0.1 and where the planted action loses at least 0.05 in normalized score per visit. The pool holds only the exact best response to the damaged network, with the main protocol and the oracle switched off; \rnad{} only records its loss rate against the attacker. Each branch trains for 256 rollouts, and a vulnerability counts as repaired when the probability of the planted action stays at most 0.5 for 3 rollouts. The band $[0.3,1)$ on Leduc serves as a control, since its planted actions lose only 0.14 per visit and the attacker leads by 0.002; on Goofspiel(4) in the $[0,0.001)$ band, the learner counters the deterministic attacker on other branches so that the attacker stops winning before the planted action is changed (Table~\ref{tab:hidden}).
 
 \begin{table}[!htbp]
-\caption{Hidden vulnerabilities: median rollouts to repair (seeds repaired out of 6) and mean coefficient of the attacker. ``$>256$'': median not repaired.}
+\caption{Hidden vulnerabilities: median rollouts to repair (seeds repaired out of 6) and mean attacker weight.}
 \label{tab:hidden}
 \begin{center}
 \footnotesize
@@ -1224,7 +1214,7 @@ Goofspiel(4) & $[0,0.001)$ & $>256$ (0) & $>256$ (0), 0.05 & $>256$ (0), 0.002 \
 \textbf{Retention.} The starting network is the same distilled CFR+ base without planted vulnerabilities. Each method trains for $10^6$ games under the main protocol, with its oracle where applicable, and with the entropy coefficient fixed at its tuned final value. Exploitability is measured every 16 rollouts. An archive receives a copy of the learner every 128 rollouts, starting with the base; it is used only for evaluation, identically for methods with and without a pool. An archived version counts as beaten when the learner's loss rate against it is at most 0.49, and as beating the learner again when that loss rate is at least 0.51. The drift loss is the per-visit loss in normalized score relative to the CFR+ base at information sets that the learner itself often reaches, grouped by the probability with which self-play opponents reach them (Table~\ref{tab:retention}, Figure~\ref{fig:drift}).
 
 \begin{table}[!htbp]
-\caption{Retention from a near-Nash start (IQM over 6 seeds): rise of the tail exploitability over the start, drift loss in the band with opponent reach below $10^{-3}$, and the fraction of archived versions that were once beaten and later beat the learner.}
+\caption{Retention from a near-Nash start (IQM, 6 seeds): exploitability rise, low-reach drift loss, and forgotten archive fraction.}
 \label{tab:retention}
 \begin{center}
 \footnotesize
@@ -1249,7 +1239,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.8\linewidth]{figures/forgetting_drift.pdf}
 \end{center}
-\caption{Retention: drift loss relative to the CFR+ base against the probability with which self-play opponents reach the information set (IQM and 95\% CI, 6 seeds). On Goofspiel(4) only the highest and lowest bands contain information sets.}
+\caption{Retention: per-visit drift loss relative to the CFR+ base across opponent-reach bands (6 seeds).}
 \label{fig:drift}
 \end{figure}
 
@@ -1259,7 +1249,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.8\linewidth]{figures/open_pool.pdf}
 \end{center}
-\caption{Open pools of $N$ external members. Top: share of the training weight held by members that the learner already beats. Bottom: tail exploitability (IQM and 95\% CI, 6 seeds); the dashed line is \rnad{} without a pool.}
+\caption{Beaten-member weight share and tail exploitability across open pools of size $N$ (6 seeds).}
 \label{fig:open-pool}
 \end{figure}
 
@@ -1272,7 +1262,7 @@ On Leduc, a pool capacity of 16 coincides with the base configuration, because t
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/ablations_forest.pdf}
 \end{center}
-\caption{Ablations ($10^6$ games, 6 seeds): per-seed paired difference in tail exploitability, variant minus base (IQM and 95\% CI; negative is better), with the seeds won and lost.}
+\caption{Single-factor ablations on \codar{}: paired difference in tail exploitability vs.\ base (IQM [95\% CI], 6 seeds).}
 \label{fig:ablations}
 \end{figure}
 
@@ -1285,7 +1275,7 @@ The checks of \S\ref{sec:exp-theory} cover 1406 experimental cells and all inequ
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/theory_necessity.pdf}
 \end{center}
-\caption{Necessity of the design elements (seed mean and 95\% CI of exploitability). Left: explicit self-play opponent, other self-play coefficients, and frozen pool weights. Right: fixed and moving dual anchor, started at the fixed point of Proposition~\ref{prop:rps}.}
+\caption{Effect of breaking individual design elements of exact \codar{} on matrix games.}
 \label{fig:theory-nec}
 \end{figure}
 
@@ -1293,7 +1283,7 @@ The checks of \S\ref{sec:exp-theory} cover 1406 experimental cells and all inequ
 \begin{center}
 \includegraphics[width=0.75\linewidth]{figures/theory_anchor_basin.pdf}
 \end{center}
-\caption{Fraction of random starts from which the moving anchor gets stuck at a non-Nash point (Wilson 95\% CI). The fixed anchor never gets stuck.}
+\caption{Fraction of random starts from which the moving anchor gets stuck at a non-Nash point (fixed anchor: 0\%).}
 \label{fig:basin}
 \end{figure}
 
@@ -1301,7 +1291,7 @@ The checks of \S\ref{sec:exp-theory} cover 1406 experimental cells and all inequ
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/theory_adversarial_pool.pdf}
 \end{center}
-\caption{Adversarial pools: median final exploitability when an adversary chooses the pool members.}
+\caption{Adversarial pools: median final exploitability across pool rules and adversarial schedules.}
 \label{fig:adversarial}
 \end{figure}
 
@@ -1309,7 +1299,7 @@ The checks of \S\ref{sec:exp-theory} cover 1406 experimental cells and all inequ
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/theory_pool_rules.pdf}
 \end{center}
-\caption{Pool rules on the same sequence of pools; at the dotted line, the learner is reset to its initial point.}
+\caption{Pool rules on the same sequence of pools (dotted line: learner reset to $\bx_0$).}
 \label{fig:pool-rules}
 \end{figure}
 
@@ -1317,7 +1307,7 @@ The checks of \S\ref{sec:exp-theory} cover 1406 experimental cells and all inequ
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/theory_inexact.pdf}
 \end{center}
-\caption{Injected errors: median final exploitability against the estimation error $\xi$ and the policy-update error $\delta$.}
+\caption{Injected errors: median final exploitability versus estimation error $\xi$ and policy-update error $\delta$.}
 \label{fig:inexact}
 \end{figure}
 

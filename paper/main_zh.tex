@@ -114,35 +114,34 @@
 \maketitle
 
 \begin{abstract}
-在双人零和博弈中，当策略之间像剪刀石头布那样互相克制时，自博弈可能陷入循环。正则化自博弈消除了循环，训练的是单个网络，但这个网络只和自己对局，无法向外部对手学习。对手池方法让网络与一池对手对局，但它们保证收敛的是池上的混合，正在训练的那个网络没有保证。本文提出 Coupled Dual-Adversarial Regularized self-play（CoDA-R），让一个网络同时与自己和对手池对局。每次正则化的策略更新之前，一条闭式规则只把训练权重分给当前能击败该网络的池内对手，权重大小取决于它们的领先幅度。对精确算法，我们证明：无论对手如何入池或退出，所训练的策略本身都收敛到纳什均衡；并且只要池里有近似最佳响应，每一步都保证向均衡前进，前进量与 exploitability 的平方成正比。我们在近端策略优化（PPO）上实现 CoDA-R，并在五个不完美信息博弈上，以相同的预算与按同一协议调参的基线比较。CoDA-R 在三个博弈上取得单网络方法中最低的 exploitability，其中在 Goofspiel 与 Leduc 扑克上分别比正则化自博弈基线低 73\% 与 36\%；在一个博弈上与最好的方法持平，在一个博弈上排第二。受控实验表明，对手池能修补自博弈几乎走不到的漏洞，并使接近均衡的网络不再漂离。
+在双人零和博弈中，当策略之间像剪刀石头布那样互相克制时，自博弈可能陷入循环。正则化自博弈消除了循环并训练单个网络，但这个网络只和自己对局，无法向外部对手学习；对手池方法与一池对手对局，但它们的收敛保证落在池上的混合，而非正在训练的网络。本文提出 Coupled Dual-Adversarial Regularized self-play（CoDA-R），让单个网络同时与自己和开放对手池对局。每次正则化策略更新之前，一条闭式规则只把训练权重按领先幅度分给当前击败该网络的池内对手。对精确算法，我们证明：无论对手如何入池或退出，所训练的策略本身都收敛到纳什均衡；并且池中含有近似最佳响应时，每一步都保证向均衡取得与 exploitability 平方成正比的进展。我们在近端策略优化（PPO）上实现 CoDA-R，并在五个不完美信息博弈上以相同预算与按同一协议调参的基线对比。CoDA-R 在三个博弈上取得单网络中最低的 exploitability（在 Goofspiel 与 Leduc 扑克上分别比正则化自博弈低 73\% 与 36\%），在一个博弈上并列最好，在一个博弈上排第二。受控实验表明，对手池能修补自博弈很少到达的漏洞，并防止接近均衡的网络漂离。
 \end{abstract}
 
 % ----------------------------------------------------------------------
 \section{引言}
 % ----------------------------------------------------------------------
 
-双人零和博弈是对抗性决策最基本的模型。棋类、扑克与即时战略游戏是它最直接的实例\citep{silver2018alphazero,brown2018libratus,vinyals2019alphastar,perolat2022stratego}，生成对抗网络与鲁棒优化的训练目标也是 min--max 问题\citep{goodfellow2014gan,daskalakis2018optimism}。这类问题自然的解概念是纳什策略，在对称博弈中，它是期望意义下没有任何对手能击败的策略。求纳什策略的常用办法是自博弈：让当前策略与自己或自己的历史版本对局，并用强化学习更新，既不需要人类数据，也不需要显式的对手模型。
+双人零和博弈是对抗性决策的基本模型。棋类、扑克与即时战略游戏是它的直接实例\citep{silver2018alphazero,brown2018libratus,vinyals2019alphastar,perolat2022stratego}，生成对抗网络与鲁棒优化的训练目标同样是 min--max 问题\citep{goodfellow2014gan,daskalakis2018optimism}。这类问题自然的解概念是纳什策略，在对称博弈中即期望意义下没有任何对手能击败的策略。求纳什策略的常用办法是自博弈：让当前策略与自己或自己的历史版本对局，并用强化学习更新，既不需要人类数据，也不需要显式的对手模型。
 
-自博弈有一个众所周知的失败模式。真实博弈中存在非传递的循环\citep{czarnecki2020spinning}：第一个策略击败第二个，第二个击败第三个，第三个又击败第一个。只针对当前策略更新的朴素自博弈会追着这些循环打转，无法收敛\citep{balduzzi2018mechanics,balduzzi2019openended}。现有的应对有两类。\emph{正则化自博弈}，如 Regularized Nash Dynamics（R-NaD）与 Magnetic Mirror Descent（MMD），惩罚策略与一个周期性移动的参考策略之间的距离。这把循环变成了收敛，而且保证落在正在训练的那个网络上\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}。但这个网络只和自己对局。脚本对手、早先的快照，以及 \emph{exploiter}（专门训练来击败当前策略的对手）都用不上，自博弈走不到的漏洞既不会被发现，也不会被修补\citep{openai2019dota,bansal2018emergent}。\emph{对手池方法}，如 Double Oracle、Policy-Space Response Oracles（PSRO）、prioritized fictitious self-play（PFSP）与联赛训练，让网络与一池这样的对手对局\citep{mcmahan2003doubleoracle,lanctot2017psro,vinyals2019alphastar}。它们若有保证，保证的也是池成员上的混合，或另外学习的平均网络，正在训练的网络没有保证。按胜率给池内对手加权的规则，如 PFSP 与 OpenAI Five 的采样器，则没有收敛证明。
+自博弈有一个众所周知的失败模式。真实博弈中存在非传递循环\citep{czarnecki2020spinning}：第一个策略击败第二个，第二个击败第三个，第三个又击败第一个。只针对当前策略更新的朴素自博弈会追着这些循环打转，无法收敛\citep{balduzzi2018mechanics,balduzzi2019openended}。现有的应对分为两类。\emph{正则化自博弈}，如 Regularized Nash Dynamics（R-NaD）与 Magnetic Mirror Descent（MMD），惩罚策略与一个周期性移动的参考策略之间的距离，从而把循环转化为单个被训练网络的收敛\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}；但这个网络只和自己对局，脚本对手、早先快照以及 \emph{exploiter}（专门训练来击败当前策略的对手）都用不上，自博弈轨迹之外的漏洞既不会被发现，也不会被修补\citep{openai2019dota,bansal2018emergent}。\emph{对手池方法}，如 Double Oracle、Policy-Space Response Oracles（PSRO）、prioritized fictitious self-play（PFSP）与联赛训练，让网络与一池这样的对手对局\citep{mcmahan2003doubleoracle,lanctot2017psro,vinyals2019alphastar}。它们若有保证，保证的也是池上的混合或单独训练的平均网络，而非正在训练的网络；PFSP 与 OpenAI Five 采样器这类按胜率加权的规则则没有收敛证明。
 
 \begin{figure}[t]
 \begin{center}
 \input{figures/overview}
 \end{center}
 \vspace{-4pt}
-\caption{\codar{} 的一步。左：学习者与对手池、与自己对局；权重规则把败率变成权重，策略更新针对加权后的对手做一步正则化更新。右：权重规则的阈值形式（此处 $c=2$）。池成员 $i$ 的高度为 $c\,\ell_i$，自博弈的高度为 $1+\tfrac c2$；高出阈值 $\tau$ 的部分就是权重，所以打平或落后的成员权重恰为零。}
+\caption{\codar{} 的单步流程（左）与 $c=2$ 时的阈值权重投影（右）。}
 \label{fig:overview}
 \end{figure}
 
-本文要回答的问题是：一个网络能否在与开放的对手池对局的同时，自己就是那个收敛的对象。我们提出 Coupled Dual-Adversarial Regularized self-play（\codar{}），在每一步都精确计算时，答案是肯定的。\codar{} 维护一个策略，称为\emph{学习者}（learner），以及一个冻结的对手池，每一步分两部分（图~\ref{fig:overview}）。第一部分用一条闭式规则分配训练权重。池内对手只有在当前能击败学习者时才获得权重，领先越多权重越大；打平或落后的对手权重恰为零，剩下的权重归自博弈。第二部分让学习者针对自己与加权后的对手池做一步正则化更新，与正则化自博弈相同。权重的取法是使学习者的加权败率最大，相当于一个对抗者的对偶变量，方法的名字由此而来。这条规则只需要学习者对每个池成员的败率，而败率可以直接从训练对局中估计。因此任何能对局的智能体都可以成为池成员，包括脚本对手、其他架构的智能体，以及训练中由 \emph{oracle} 产生的 exploiter；而 PSRO 需要所有池成员两两之间的收益。
+本文要回答的问题是：单个网络能否在与开放对手池对局的同时，自身收敛到均衡。我们提出 Coupled Dual-Adversarial Regularized self-play（\codar{}），维护单个策略（称为\emph{学习者}，learner）与一个冻结对手池，每一步分两部分（图~\ref{fig:overview}）。第一部分用闭式规则分配训练权重：池内对手只有在当前击败学习者时才获得正权重，领先越多权重越大；打平或落后的对手权重为零，剩余权重归自博弈。第二部分让学习者针对自己与加权对手池做一步正则化更新。由于权重最大化学习者的正则化损失，它充当对抗者的对偶变量，方法的名字由此而来。计算权重只需要学习者对每个池成员的败率，可直接从训练对局中估计。因此任何能对局的智能体都可以加入池——包括脚本对手、其他架构的智能体，以及训练中由 \emph{oracle} 产生的 exploiter——而 PSRO 需要所有池成员两两之间的收益。
 
-这两部分由一条不等式耦合在一起（定理~\ref{thm:energy}）。学习者的每一步移动、池持有的每一单位权重，都要由学习者到纳什策略的距离平方的下降来支付。这个距离有限，所以移动量与池权重都必须趋于零，而一个不再移动、池成员又不持有权重的策略，就是整个博弈的纳什策略。这个论证对任意的池内容、任意的池变化方式都成立。同一条不等式还说明了对手池带来什么：当池里有学习者的近似最佳响应时，每一步都使学习者向均衡前进，前进量与它的 exploitability 的平方成正比（定理~\ref{thm:oracle}）。本文的贡献如下。
+这两部分更新由一条能量不等式耦合（定理~\ref{thm:energy}）：学习者的每一步移动与池持有的每一单位权重，都由学习者到纳什策略距离平方的下降来支付。由于初始距离有限，策略步长与池权重都必须趋于零；而一个不再移动且池权重为零的策略，必定是整个博弈的纳什策略。这一结论对任意池内容与任意增删日程都成立。当池中含有近似最佳响应时，同一条不等式还保证每一步向均衡取得与 exploitability 平方成正比的进展（定理~\ref{thm:oracle}）。本文的贡献如下。
 \begin{itemize}
-\item \textbf{算法。}\codar{} 让单个网络与自己、与一个由黑盒对手组成的开放对手池对局，权重规则是闭式的，不在各步之间保存任何状态。已有的池方法保证的是混合或时间平均，正则化自博弈不能接入外部对手；\codar{} 可以接入任何对手，并且保证落在所训练的策略本身。它包装的是未经修改的 PPO 学习器，只增加一个近端奖励项（\S\ref{sec:alg}、\S\ref{sec:impl}）。
-\item \textbf{理论。}一条能量不等式把策略移动与池权重都记在到纳什均衡的距离上。由它得到：对任意的池变化序列，所训练的策略 last-iterate 收敛；池不再变化后有 $O(K^{-1/4})$ 的 last-iterate 速率；exploitability 有只含训练中可观测量的上界；所有的界都有带误差的版本（\S\ref{sec:theory}）。当池里有近似最佳响应时，它还给出每步进展关于 exploitability 平方的下界（定理~\ref{thm:oracle}）。
-\item \textbf{实验。}在精确算法约 $10^8$ 条逐步记录中，没有一条不等式被违反。在 PPO 实现上，以相同的预算、所有基线按同一协议调参，\codar{} 的学习者在 Goofspiel(4)、Leduc 扑克与 3$\times$3 abrupt Dark Hex 上取得单网络中最低的末段 exploitability，在 abrupt Phantom Tic-Tac-Toe 上与 \rnad{} 持平。受控实验分离出对手池的贡献，以及权重规则与 PFSP 的区别（\S\ref{sec:exp}）。
+\item \textbf{算法。}\codar{} 通过锚定在纯自博弈上的无状态闭式权重规则，让单个网络同时与自己和开放黑盒对手池对局，包装未经修改的近端策略优化（PPO）\citep{schulman2017ppo}学习器并仅增加一个近端奖励项（\S\ref{sec:alg}、\S\ref{sec:impl}）。将对偶锚固定在纯自博弈上，排除了移动锚会卡住的非纳什不动点（\S\ref{sec:coda}）。
+\item \textbf{理论。}单一能量不等式给出所训练策略在任意池变化下的 last-iterate 收敛、池固定后的 $O(K^{-1/4})$ last-iterate 速率、在线 exploitability 证书、容错界，以及池中含近似最佳响应时与 exploitability 平方成正比的单步进展下界（\S\ref{sec:theory}）。
+\item \textbf{实验。}在精确算法约 $10^8$ 条逐步记录中无一违反理论不等式。在 PPO 实现上，以相同预算与按同一协议调参的基线对比，\codar{} 学习者在 Goofspiel(4)、Leduc 扑克与 3$\times$3 abrupt Dark Hex 上取得单网络中最低的末段 exploitability，在 abrupt Phantom Tic-Tac-Toe 上与正则化自博弈（R-NaD）并列最好。受控实验分离出对手池的贡献以及权重规则与 PFSP 的差异（\S\ref{sec:exp}）。
 \end{itemize}
-权重规则的参考点固定在纯自博弈上。让参考点随训练移动的变体，是求解限制在池上的博弈时自然的设计，但它会卡在非均衡点上；\S\ref{sec:coda} 给出反例，并解释参考点为什么必须固定。
 
 % ----------------------------------------------------------------------
 \section{问题设定}
@@ -155,7 +154,7 @@
 \[
 X=\simplex_M:=\Big\{\bx\in\mathbb R^M:\ x_i\ge0,\ \textstyle\sum_ix_i=1\Big\}
 \]
-中的一个点。全文用 $\simplex_n$ 表示 $\mathbb R^n$ 中的概率单纯形。在完美回忆的序贯博弈中，混合策略等价于网络所表示的行为策略\citep{kuhn1953}，所以这种正规形无需额外假设就涵盖了扑克这样的博弈。此时 $M$ 非常大，但算法从不枚举纯策略，正规形只用于分析。
+中的一个点。全文用 $\simplex_n$ 表示 $\mathbb R^n$ 中的概率单纯形，$\be_i$ 表示其第 $i$ 个标准基顶点。由 Kuhn 定理\citep{kuhn1953}，在完美回忆的有限序贯博弈中，网络所表示的任一行为策略都有实现等价的混合策略。因此我们在正规形下陈述理论分析，而在行为策略上直接运行算法，从不枚举 $M$ 条纯策略。
 
 记 $\ell(\bx;\by)\in[0,1]$ 为策略 $\bx$ 对 $\by$ 的期望损失，结果按输记 1、赢记 0、平记 $\tfrac12$ 归一化。我们称它为\emph{败率}。由零和与对称性，$\ell(\bx;\by)+\ell(\by;\bx)=1$，故存在反对称矩阵 $S=-S^\top$ 使
 \[
@@ -214,7 +213,7 @@ $\aug(\bx)$ & $(\ell_1(\bx),\dots,\ell_N(\bx),\tfrac12)$，补上自博弈一项
 $\bw(\bx)$、$\bw_P$、$\wsp$ & 权重；它的池坐标；自博弈权重 \\
 $\esp$ & $(0,\dots,0,1)$，全部权重在自博弈上 \\
 $c$、$\eta$ & 对偶强度；近端强度 \\
-$a$、$b$ & 池权重 $1-\wsp$；池压力 $\sum_iw_i(\ell_i-\tfrac12)$ \\
+$a$、$b$ & 池权重 $1-\wsp$；池压力 $\sum_{i=1}^Nw_i(\ell_i(\bx)-\tfrac12)$ \\
 $\xi_k$、$\delta_k$、$\varepsilon$ & 败率估计、策略更新与 oracle 的误差 \\
 \bottomrule
 \end{tabular}
@@ -227,7 +226,7 @@ $\xi_k$、$\delta_k$、$\varepsilon$ & 败率估计、策略更新与 oracle 的
 % ----------------------------------------------------------------------
 
 \begin{algorithm}[t]
-\caption{\codar{} 的一步（精确形式；PPO 实现见 \S\ref{sec:impl}）}
+\caption{精确 \codar{} 的一步。}
 \label{alg:codar}
 \begin{algorithmic}[1]
 \Require 学习者 $\bx_k$、对手池 $P=\{\by_1,\dots,\by_N\}$、对偶强度 $c>0$、近端强度 $\eta>0$
@@ -239,7 +238,7 @@ $\xi_k$、$\delta_k$、$\varepsilon$ & 败率估计、策略更新与 oracle 的
 \end{algorithmic}
 \end{algorithm}
 
-\codar{} 维护学习者 $\bx_k$ 与对手池 $P$。一步（算法~\ref{alg:codar}、图~\ref{fig:overview}）分两部分。\emph{权重规则}拿到学习者对每个池成员的败率，据此分配权重：当前能击败学习者的成员按领先幅度获得权重，其余成员恰为零，剩下的权重归自博弈。\emph{策略更新}再让学习者针对自己与加权后的对手池做一步正则化更新，并保持在上一个策略 $\bx_k$ 附近。权重是针对学习者选取的，是一个 min--max 问题中取最大的那个变量，所以我们也把权重规则称为对偶侧，把策略更新称为原侧。在 \S\ref{sec:theory} 分析的精确算法中，两部分都在新策略 $\bx_{k+1}$ 处取值，即这一步是隐式的；\S\ref{sec:impl} 说明 PPO 实现中所用的近似。
+\codar{} 维护学习者 $\bx_k$ 与对手池 $P$。一步（算法~\ref{alg:codar}、图~\ref{fig:overview}）分两部分。\emph{权重规则}把学习者对每个池成员的败率映射为权重：当前击败学习者的成员按领先幅度获得权重，其余成员权重为零，剩余权重归自博弈。\emph{策略更新}再让学习者针对自己与加权对手池做一步正则化更新，并保持在 $\bx_k$ 附近。由于权重充当 min--max 问题中取最大的变量，我们也把权重规则称为对偶侧，把策略更新称为原侧。在 \S\ref{sec:theory} 分析的精确算法中，两部分都在新策略 $\bx_{k+1}$ 处取值，因此更新是隐式的；\S\ref{sec:impl} 说明 PPO 实现中的近似。
 
 \subsection{权重规则}
 \label{sec:dual}
@@ -259,7 +258,7 @@ $\xi_k$、$\delta_k$、$\varepsilon$ & 败率估计、策略更新与 oracle 的
 
 \begin{lemma}[权重规则的性质]
 \label{lem:dual}
-(a) $\bw(\bx)=\esp$ 当且仅当 $\max_{i\in P}\ell_i(\bx)\le\tfrac12$。\\
+(a) $\bw(\bx)=\esp$ 当且仅当 $\max_{1\le i\le N}\ell_i(\bx)\le\tfrac12$。\\
 (b) 持有权重的成员必定正在击败学习者：
 \[
 w_i(\bx)>0\ \Longrightarrow\ \ell_i(\bx)-\tfrac12\ \ge\ \frac{1-\wsp(\bx)+w_i(\bx)}{c}\ >\ 0 .
@@ -267,16 +266,16 @@ w_i(\bx)>0\ \Longrightarrow\ \ell_i(\bx)-\tfrac12\ \ge\ \frac{1-\wsp(\bx)+w_i(\b
 (c) 若池中只有一个成员且 $\ell_1(\bx)=\tfrac12+\mu$，则 $w_1(\bx)=\operatorname{clip}(\tfrac{c\mu}{2},0,1)$。
 \end{lemma}
 
-由 (a)，没有成员击败学习者时，权重全部归自博弈，这一步就是一步正则化自博弈，即 R-NaD 与 MMD 共同的骨架；\codar{} 只在有对手击败学习者时才偏离正则化自博弈。由 (b)，持有权重的成员正在赢，权重越大的成员领先越多。有多个成员时，各权重共用一个阈值，没有逐成员的闭式。例如 $c=4$、两个成员的败率都是 0.9 时，$\esp+c\,\aug=(3.6,3.6,3)$，$\bw=(\tfrac12,\tfrac12,0)$，自博弈没有分到权重。
+由 (a)，没有成员击败学习者时，权重全部归自博弈，这一步退化为一步正则化自博弈，即 R-NaD 与 MMD 共同的骨架；\codar{} 只在有对手击败学习者时才偏离正则化自博弈。由 (b)，每个正权重成员都在赢，领先越多权重越大。有多个成员时，各权重共用阈值 $\tau$，当大幅领先的成员占满整个单纯形时，自博弈权重降为零。
 
-锚放在 $\esp$，是因为解处的正确权重事先就知道：没有对手能击败纳什策略，由 (a)，那里的权重就是 $\esp$。由于锚是固定的，$\bw(\bx)$ 是当前败率的连续闭式函数，不携带此前各步的任何状态。新的池成员不需要初始化，一个成员只要重新开始赢，就立刻重新获得权重。\S\ref{sec:coda} 说明，随训练移动的锚会失去收敛保证。
+锚放在 $\esp$，是因为均衡处的正确权重事先已知：没有对手能击败纳什策略，由 (a)，那里的权重必为 $\esp$。固定锚使 $\bw(\bx)$ 成为当前败率的无状态连续闭式函数，因此新入池的成员无需初始化，被压制的成员一旦重新获胜就立即恢复权重（\S\ref{sec:coda} 说明移动锚为何失败）。
 
 \subsection{策略更新}
 \label{sec:primal}
 
 固定上一个策略 $\bx_k$，它充当\emph{策略锚}，并固定\emph{近端强度} $\eta>0$。先假设对手是固定的：系数为 1 的自博弈对手 $\bar{\by}$，以及权重为 $\bw$ 的池成员。策略更新最小化加权败率与近端惩罚之和，
 \begin{equation}
-f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i\in P}w_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_k\|^2,\qquad \bx\in X .
+f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i=1}^Nw_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_k\|^2,\qquad \bx\in X .
 \label{eq:primal-obj}
 \end{equation}
 记 $A:=[S\by_1\cdots S\by_N]\in\mathbb R^{M\times N}$，前两项的梯度是常向量 $S\bar{\by}+A\bw_P$。由配方法，最小点是 $\Proj_X\big(\bx_k-\tfrac1\eta[S\bar{\by}+A\bw_P]\big)$，即从 $\bx_k$ 出发、步长为 $1/\eta$、使加权败率下降的一步投影更新。精确算法让对手在解本身处取值，$\bar{\by}=\bx_{k+1}$、$\bw=\bw(\bx_{k+1})$，于是更新为
@@ -284,26 +283,23 @@ f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i\in P}w_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_
 \bx_{k+1}=\Proj_X\Big(\bx_k-\tfrac1\eta\big[S\bx_{k+1}+A\,\bw(\bx_{k+1})_P\big]\Big).
 \label{eq:primal}
 \end{equation}
-未知量出现在等式两边，所以更新是隐式的。由投影不等式，\eqref{eq:primal} 等价于变分不等式
-\begin{equation*}
+由于 $\bx_{k+1}$ 出现在等式两边，更新是隐式的。由投影不等式，\eqref{eq:primal} 等价于变分不等式
+\begin{equation}
 \big\langle S\bx_{k+1}+A\,\bw(\bx_{k+1})_P+\eta(\bx_{k+1}-\bx_k),\ \bx'-\bx_{k+1}\big\rangle\ \ge\ 0\qquad\forall \bx'\in X ,
-\tag{VI}
 \label{eq:P}
-\end{equation*}
-它的三项分别是 \eqref{eq:primal-obj} 的三项在 $\bx_{k+1}$ 处的梯度：自博弈、对手池与近端惩罚。对任意 $\bx_k$ 与任意池，\eqref{eq:P} 恰有一个解（附录~\ref{app:unique} 的命题~\ref{prop:unique}）。后面所有的证明都是在 \eqref{eq:P} 中代入合适的测试点 $\bx'$。记
+\end{equation}
+它的三项分别是 \eqref{eq:primal-obj} 中自博弈、对手池与近端惩罚在 $\bx_{k+1}$ 处的梯度。从凸分析角度看，$A\,\bw(\bx)_P$ 是光滑凸池惩罚 $\Psi_P(\bx):=\max_{\bw\in\simplex_{N+1}}[\sum_{i=1}^Nw_i(\ell_i(\bx)-\tfrac12)-\tfrac1{2c}\|\bw-\esp\|^2]$ 的梯度，且 $\Psi_P$ 在所有纳什策略处为零，因此 \eqref{eq:P} 是单调算子 $S\bx+\nabla\Psi_P(\bx)$ 上的一步隐式近端点更新。对任意 $\bx_k$ 与任意池，\eqref{eq:P} 有唯一解（附录~\ref{app:unique} 的命题~\ref{prop:unique}），后文所有证明都在 \eqref{eq:P} 中代入合适的测试点 $\bx'$。记
 \[
-\bv_{k+1}:=\bx_{k+1}+\textstyle\sum_iw_i(\bx_{k+1})\,\by_i,\qquad t_k:=2-\wsp(\bx_{k+1})\ \ge\ 1
+\bv_{k+1}:=\bx_{k+1}+\sum_{i=1}^Nw_i(\bx_{k+1})\,\by_i,\qquad t_k:=2-\wsp(\bx_{k+1})\ \ge\ 1
 \]
-为合成对手及其总质量。于是 $S\bv_{k+1}$ 就是 \eqref{eq:P} 前两项之和，\eqref{eq:P} 说的是学习者对 $\bv_{k+1}$ 做了一步近端最佳响应。
-
-隐式形式是必要的。分析需要权重与自博弈对手在同一点 $\bx_{k+1}$ 处取值（引理~\ref{lem:B}）。如果自博弈对手改用上一个策略 $\bx_k$，得到的显式更新会漂离均衡，在我们的矩阵博弈实验中它的 exploitability 停在 0.1 附近（附录图~\ref{fig:theory-nec}）。
+为合成对手及其总质量，则 $S\bv_{k+1}$ 等于 \eqref{eq:P} 前两项之和，即 \eqref{eq:P} 对 $\bv_{k+1}$ 做一步近端最佳响应。让自博弈对手与权重都在 $\bx_{k+1}$ 处取值，使两者在引理~\ref{lem:B} 中对齐于同一点（\S\ref{sec:exp-theory} 检验了显式变体）。
 
 \subsection{自博弈系数与对手采样}
 \label{sec:share}
 
-无论自博弈权重 $\wsp$ 是多少，自博弈在 \eqref{eq:P} 中的系数每一步都是 1，所以合成对手的质量总有 $t_k\ge1$。这个系数必须是一个正的常数。系数取 0 时，一旦池权重归零，\eqref{eq:P} 的前两项消失，每个 $\bx$ 都是不动点。系数取自博弈权重 $\wsp(\bx_{k+1})$ 时，自博弈项 $\wsp(\bx)S\bx$ 关于 $\bx$ 不再是反对称的，命题~\ref{prop:unique} 所依赖的单调性随之丧失。
+在对偶投影 \eqref{eq:dual} 中，$\wsp$ 决定池成员总共分走多少权重 $a=1-\wsp\in[0,1]$；在策略更新 \eqref{eq:P} 中，自博弈以固定系数 1 进入，对手池以权重 $\bw_P$ 叠加其上，总质量满足 $t_k\ge1$。保持自博弈系数为正常数，既保留了自博弈算子 $S\bx$ 的反对称性（用于命题~\ref{prop:unique} 的解唯一性），又保证池权重归零后自博弈仍继续推动学习者（\S\ref{sec:exp-theory}）。
 
-系数描述的是训练目标，采样概率可以另外选取。实现可以按各臂上的任意分布 $\br$ 抽取对手，并给每一局乘上所属臂的重要性比，自博弈为 $1/r_{\mathrm{sp}}$，成员 $i$ 为 $w_i/r_i$；这样期望更新恰好是 \eqref{eq:P} 的更新。我们直接按权重抽取对手，$\br\propto(\bw_P,\wsp)$，并给自博弈臂设一个下限，以限制它的重要性比。若按系数的比例采样，$\br=(\bw_P,1)/t_k$，池在全部对局中的占比不超过 $(1-\wsp)/(2-\wsp)\le\tfrac12$，恰恰是持有权重的那些成员分到的对局太少，败率难以估准。
+由于系数 $(\bw_P,1)$ 定义的是训练目标而非采样分布，实现中可按任意分布 $\br$ 抽取对手并乘以重要性比（自博弈为 $1/r_{\mathrm{sp}}$，成员 $i$ 为 $w_i/r_i$），期望更新保持不变。我们直接按 $(\bw_P,\wsp)$ 采样并给自博弈设一个小下限，使活跃池成员按权重比例获得对局，而不会被限制在总对局的一半以内。
 
 % ----------------------------------------------------------------------
 \section{理论分析}
@@ -313,7 +309,7 @@ f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i\in P}w_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_
 本节分析精确算法：每一步都在 \S\ref{sec:prelim} 的正规形上精确求解 \eqref{eq:P}，池 $P_k$ 在各步之间可以任意变化。表~\ref{tab:guarantees} 汇总了结论。\S\ref{sec:energy} 证明所有结论依赖的那条不等式，\S\ref{sec:conv} 推出收敛、证书与速率，\S\ref{sec:oracle-rate} 定量给出 oracle 带来的增益，\S\ref{sec:inexact} 讨论混合策略与非精确步。
 
 \begin{table}[t]
-\caption{精确算法的保证。$K$ 为步数，$n$ 为池保持不变的最近步数。}
+\caption{精确 \codar{} 的主要理论保证汇总。}
 \label{tab:guarantees}
 \begin{center}
 \footnotesize
@@ -323,11 +319,11 @@ f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i\in P}w_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_
 对象 & 保证 & 对池的条件 & 结论 \\
 \midrule
 学习者 $\bx_k$ & 收敛到纳什策略 & 任意的池序列 & 定理~\ref{thm:conv} \\
-学习者 $\bx_k$ & $\min_{k<K}\Expl(\bx_{k+1})=O(K^{-1/2})$ & 任意的池序列 & 定理~\ref{thm:rate} \\
-学习者 $\bx_K$ & $\Expl(\bx_K)=O(n^{-1/4})$ & $n$ 步内不变 & 定理~\ref{thm:rate} \\
+学习者 $\bx_k$ & 前 $K$ 步满足 $\min_{k<K}\Expl(\bx_{k+1})=O(K^{-1/2})$ & 任意的池序列 & 定理~\ref{thm:rate} \\
+学习者 $\bx_K$ & $\Expl(\bx_K)=O(n^{-1/4})$ & 最近 $n$ 步内不变 & 定理~\ref{thm:rate} \\
 学习者 $\bx_{k+1}$ & $\Expl(\bx_{k+1})\le\tfrac12a+\eta D\|\dx_k\|$，训练中可观测 & 任意池 & 定理~\ref{thm:cert} \\
 学习者 $\bx_{k+1}$ & 到每个纳什策略的距离平方下降 $\tfrac{c}{4\eta}[\Expl(\bx_k)-\varepsilon]^{+2}$ & 含 $\bx_k$ 的 $\varepsilon$-最佳响应 & 定理~\ref{thm:oracle} \\
-时间平均 $\bar{\bq}_K$ & $\Expl(\bar{\bq}_K)\le\eta/K$ & 任意的池序列 & 命题~\ref{prop:mix} \\
+时间平均 $\bar{\bq}_K$ & 前 $K$ 步满足 $\Expl(\bar{\bq}_K)\le\eta/K$ & 任意的池序列 & 命题~\ref{prop:mix} \\
 以上全部 & 相同的界加上误差项 & 非精确步 & 定理~\ref{thm:inexact} \\
 \bottomrule
 \end{tabular}
@@ -339,8 +335,8 @@ f_k(\bx):=\ell(\bx;\bar{\by})+\sum_{i\in P}w_i\,\ell_i(\bx)+\frac\eta2\|\bx-\bx_
 
 固定一步 $k$，简记 $\bx:=\bx_{k+1}$、$\bw:=\bw(\bx)$、$\bv:=\bv_{k+1}$；$\dx_k=\bx_{k+1}-\bx_k$ 是这一步的移动。用两个标量概括池在 $\bx$ 处的状态，即\emph{池权重} $a$ 与\emph{池压力} $b$：
 \[
-a(\bx):=1-\wsp=\textstyle\sum_{i\in P}w_i,\qquad
-b(\bx):=\textstyle\sum_{i\in P}w_i\big(\ell_i(\bx)-\tfrac12\big).
+a(\bx):=1-\wsp=\sum_{i=1}^Nw_i,\qquad
+b(\bx):=\sum_{i=1}^Nw_i\big(\ell_i(\bx)-\tfrac12\big).
 \]
 池压力是各成员的领先幅度按权重加权的和。由引理~\ref{lem:dual}(b)，持有权重的成员都有 $\ell_i>\tfrac12$，故 $b\ge0$。直接展开得到两个恒等式：
 \begin{equation}
@@ -424,7 +420,7 @@ $\bv=\bx+\sum_iw_i\by_i$ 是 $X$ 中若干点的非负组合，由 \eqref{eq:nas
 \]
 (ii) 池内证书：
 \[
-\Big[\max_{i\in P}\ell_i(\bx_{k+1})-\tfrac12\Big]^+\ \le\ \frac{\sqrt2}{c}\,\|\bw(\bx_{k+1})-\esp\|+\eta D\|\dx_k\| .
+\Big[\max_{1\le i\le N}\ell_i(\bx_{k+1})-\tfrac12\Big]^+\ \le\ \frac{\sqrt2}{c}\,\|\bw(\bx_{k+1})-\esp\|+\eta D\|\dx_k\| .
 \]
 \end{theorem}
 证明（附录~\ref{app:cert}）在 \eqref{eq:P} 中取 $\bx_{k+1}$ 的一个最佳响应作为测试点。朝它移动恰好使自博弈项下降 $\Expl(\bx_{k+1})$，所以池项与近端项必须补上这一部分，而这两项都被可观测量控制：池权重 $a$、到纯自博弈的距离 $\|\bw-\esp\|$，以及这一步的移动量 $\|\dx_k\|$。
@@ -464,13 +460,11 @@ $\bv=\bx+\sum_iw_i\by_i$ 是 $X$ 中若干点的非负组合，由 \eqref{eq:nas
 \|\bx_{k+1}-\xs\|^2\ \le\ \|\bx_k-\xs\|^2-\frac{c}{4\eta}\,\Big(\big[\Expl(\bx_k)-\varepsilon\big]^+\Big)^2 .
 \]
 \end{theorem}
-证明见附录~\ref{app:oracle}，它建立在定理~\ref{thm:energy} 的预算上。由引理~\ref{lem:B}，池压力 $b$ 由朝 $\xs$ 的移动支付。一个领先学习者 $\mu$ 的 exploiter 至少获得引理~\ref{lem:dual}(c) 中单成员时的权重 $\tfrac{c\mu}2$，因为其余成员只会降低自博弈权重，于是引理~\ref{lem:A} 给出 $b\ge\tfrac c4\mu^2$。近端的一步至多把这个领先改变 $\|S\|\,\|\dx_k\|$，条件 $c\|S\|^2\le2\eta$ 让能量不等式中的移动项吸收这一改变。条件 $c\le4$ 保证无论领先多大，$\tfrac{c\mu}2$ 都不超过 1；在收益跨度大、归一化领先很小的博弈里，$c$ 大得多时也是如此。换个角度看，当 $\by_k$ 是精确最佳响应时，$S\by_k$ 是 $\Expl$ 在 $\bx_k$ 处的次梯度，所以 oracle 给只会绕着均衡旋转的自博弈项加上了一个使 exploitability 下降的方向。
+证明见附录~\ref{app:oracle}，建立在定理~\ref{thm:energy} 的能量预算之上。领先 $\bx_{k+1}$ 幅度为 $\mu$ 的 exploiter 至少获得引理~\ref{lem:dual}(c) 中的单成员权重 $\tfrac{c\mu}2$（其余成员只会降低自博弈权重）；由此引理~\ref{lem:A} 给出 $b\ge\tfrac c4\mu^2$，引理~\ref{lem:B} 将 $b$ 转化为朝 $\xs$ 的进展，而 $c\|S\|^2\le2\eta$ 吸收了步长 $\dx_k$ 上的领先变化。几何上看，当 $\by_k$ 是精确最佳响应时，$S\by_k$ 是 $\Expl$ 在 $\bx_k$ 处的次梯度，为原本只绕均衡旋转的自博弈场增加了一个使 exploitability 下降的方向。（此处 $c\le4$ 表达的是 $\mu\le\tfrac12$ 下的不饱和条件 $\tfrac{c\mu}2\le1$；在归一化领先满足 $\mu\le\bar\mu<\tfrac12$ 的博弈中，对任意 $c\le2/\bar\mu$ 该界同样成立。）
 
-这个定理把 oracle 的两种作用分开了。它的误差 $\varepsilon$ 决定它能把 exploitability 压到多低：一旦 $\Expl(\bx_k)\le\varepsilon$，它的成员未必领先学习者，可能得不到权重，剩下的就是近端自博弈。比值 $c/\eta$ 决定在这个水平之上压得多快。作为对比，空池时 $b=0$，每步的下降只有 $\|\dx_k\|^2$。纳什策略在单纯形内部时，自博弈项与 $\bx-\xs$ 正交，这个下降是 $1/\eta$ 的二阶量。例如在剪刀石头布的均衡附近，投影不起作用，偏差 $\bg_k:=\bx_k-\xs$ 满足 $(I+\tfrac1\eta S)\bg_{k+1}=\bg_k$，$S$ 在平面 $\mathbf 1^\top\bg=0$ 上的特征值为 $\pm\mathrm i\sqrt3/2$，于是 $\|\bg_{k+1}\|^2=\|\bg_k\|^2/(1+\tfrac{3}{4\eta^2})$。池里有精确最佳响应时，定理保证的下降是 $\tfrac{c}{4\eta}\Expl(\bx_k)^2$，是 $1/\eta$ 的一阶量。PPO 每个外环步只走一小步，对应大的 $\eta$，这正是两者差别最大的情形。纳什策略在单纯形边界上时，投影本身也带来一阶的收缩，差别就小一些。
+定理~\ref{thm:oracle} 解释了强对手池相对纯正则化自博弈的加速机制。空池时（$b=0$），每步 $\|\bx_k-\xs\|^2$ 的下降只有 $\|\dx_k\|^2$。在内部纳什策略附近，$S\bx$ 与 $\bx-\xs$ 正交，这一缩减只是二阶量 $O(1/\eta^2)$（例如剪刀石头布均衡附近 $\|\bx_{k+1}-\xs\|^2=\|\bx_k-\xs\|^2/(1+\tfrac{3}{4\eta^2})$）。而池中含有 $\varepsilon$-最佳响应时，每步下降为 $\tfrac{c}{4\eta}([\Expl(\bx_k)-\varepsilon]^+)^2$，在达到 oracle 精度 $\varepsilon$ 之前关于 $1/\eta$ 是一阶量；PPO 使用的小步长对应大的 $\eta$，正是这一差距最大的区间。同时，不同于 PFSP、均匀加权或 Hedge 等固定池份额规则，阈值投影会在均衡处把打平的 exploiter 权重归零，保证更新在纳什点处精确消失（\S\ref{sec:exp-theory}）。
 
-证明依赖投影的阈值形式与引理~\ref{lem:A}。把固定份额的权重留给池的规则，如 PFSP、均匀权重或 Hedge，在均衡处仍把权重留给与学习者打平的 exploiter，所以它们的更新在均衡处不为零，学习者不会停在纳什策略上（\S\ref{sec:exp-theory}）。
-
-exploiter 还提供证据。对任意对手 $\hat\by$，$[\ell(\bx;\hat\by)-\tfrac12]^+\le\Expl(\bx)$，所以每个 exploiter 实测的领先都是学习者 exploitability 的一个下界。在大到无法做全树最佳响应的博弈中，这个下界仍然可以得到，\S\ref{sec:exp-neural} 检验了它的校准。
+最后，任意 exploiter $\hat\by$ 都无需遍历博弈树即可给出实测下界 $[\ell(\bx;\hat\by)-\tfrac12]^+\le\Expl(\bx)$（\S\ref{sec:exp-neural}）。
 
 \subsection{混合策略与非精确步}
 \label{sec:inexact}
@@ -500,7 +494,7 @@ exploiter 还提供证据。对任意对手 $\hat\by$，$[\ell(\bx;\hat\by)-\tfr
 定理~\ref{thm:cert} 的两条证书变为
 \begin{align*}
 \Expl(\hat \bx_{k+1})&\ \le\ \tfrac12a+\eta D\|\dx_k\|+\delta_k+a\,\xi_k,\\
-\Big[\max_{i\in P}\ell_i(\hat \bx_{k+1})-\tfrac12\Big]^+&\ \le\ \tfrac{\sqrt2}{c}\|\bw_{k+1}-\esp\|+\eta D\|\dx_k\|+\delta_k+2\xi_k,
+\Big[\max_{1\le i\le N}\ell_i(\hat \bx_{k+1})-\tfrac12\Big]^+&\ \le\ \tfrac{\sqrt2}{c}\|\bw_{k+1}-\esp\|+\eta D\|\dx_k\|+\delta_k+2\xi_k,
 \end{align*}
 命题~\ref{prop:mix} 中混合策略的界变为
 \[
@@ -557,7 +551,7 @@ b\ \ge\ -\tfrac1c\,(\bw-\brho_k)^\top(\esp-\bw),
 我们在近端策略优化（PPO）\citep{schulman2017ppo}上实现 \codar{}。精确算法的一步 $k$ 对应由若干个 rollout 组成的一个\emph{外环步}，外环步结束时把策略锚移到当前的学习者。在一个外环步之内，每个精确对象都换成一个近似，其误差计入 $\xi_k$、$\delta_k$ 或 $\varepsilon$（表~\ref{tab:impl}）。学习者仍是未经修改的 PPO 学习器；改变的是它面对哪些对手、各局如何加权，以及奖励中增加的一个近端项。全部设置见附录~\ref{app:impl}。
 
 \begin{table}[t]
-\caption{从精确算法到 PPO 实现，以及每个近似计入 \S\ref{sec:inexact} 的哪个误差项。}
+\caption{精确 \codar{} 各组件的 PPO 近似实现。}
 \label{tab:impl}
 \begin{center}
 \footnotesize
@@ -578,7 +572,7 @@ Oracle & 按固定日程、针对冻结的学习者训练的 PPO exploiter & $\v
 \end{center}
 \end{table}
 
-与分析的差别有两处不在这些误差项之内。近端项像 R-NaD 那样用 Kullback--Leibler（KL）散度度量策略之间的距离，而分析用的是混合策略单纯形上的欧氏距离；神经网络策略更新的误差 $\delta_k$ 也没有已知的界。因此 \S\ref{sec:theory} 的保证是关于精确算法的陈述，\S\ref{sec:exp} 从实验上评估这个实现。在定理~\ref{thm:cert} 的证书所含的量中，池权重 $a$ 与距离 $\|\bw-\esp\|$ 可以在训练中精确读出，移动量 $\|\dx_k\|$ 只有 KL 代理。所以我们把证书用作训练诊断，而把 \S\ref{sec:oracle-rate} 中 exploiter 给出的下界作为 exploitability 的实测证据。
+与 R-NaD 相同，近端惩罚在行为策略上通过朝策略锚的 Kullback--Leibler（KL）奖励塑形实现。训练过程中，定理~\ref{thm:cert} 中的池权重 $a$ 与对偶距离 $\|\bw-\esp\|$ 可直接读出作为收敛诊断，同时 \S\ref{sec:oracle-rate} 中的 exploiter 下界 $[\ell(\hat\bx;\hat\by)-\tfrac12]^+$ 直接给出无需全树遍历的 exploitability 实测下界。
 
 % ----------------------------------------------------------------------
 \section{实验}
@@ -590,41 +584,41 @@ Oracle & 按固定日程、针对冻结的学习者训练的 PPO exploiter & $\v
 \subsection{矩阵博弈上的精确算法}
 \label{sec:exp-theory}
 
-我们在随机反对称、循环、spinning-top\citep{czarnecki2020spinning} 与 Blotto 类矩阵博弈上运行精确算法（纯策略数最多 64），以高精度求解每一步的隐式更新，并在每一步检查 \S\ref{sec:theory} 的每一条不等式。在约 $10^8$ 条逐步记录中没有一次违反，而破坏任一设计要素的变体会造成数千万次能量不等式的违反。另有四个结果与设计有关（附录~\ref{app:theory-figs}）。
+我们先在随机反对称、循环、spinning-top\citep{czarnecki2020spinning} 与 Blotto 类矩阵博弈上验证精确算法：以高精度求解每一步的隐式更新，并在每一步检查 \S\ref{sec:theory} 的每一条不等式。在约 $10^8$ 条逐步记录中没有一次违反，而破坏任一设计要素的变体会造成数千万次能量不等式的违反（附录~\ref{app:theory-figs}）。
 
-\textbf{固定锚与移动锚。}移动锚会卡在非纳什点上，固定锚从不这样。从命题~\ref{prop:rps} 的反例出发，固定锚在 100 步内收敛到 $10^{-11}$，而移动锚在自博弈系数为 1 时停在 $\Expl=0.25$，系数为 $\wsp$ 时停在 $0.5$。在不带 oracle 的 44{,}800 个随机起点中，移动锚在 13.8\% 的运行中卡住（循环博弈上为 32\%）。估计噪声（$\xi=0.05$）或 oracle 能在几乎所有运行中让它脱身，这与 \S\ref{sec:exp-abl} 的神经消融一致。
+\textbf{固定锚与移动锚。}从命题~\ref{prop:rps} 的反例出发，固定锚收敛到 $10^{-11}$，移动锚则卡在非纳什不动点上。在不带 oracle 的随机起点中，移动锚在 13.8\% 的运行中卡住（循环博弈上为 32\%），固定锚一次也没有。
 
-\textbf{必要性。}隐式的自博弈对手与正的自博弈系数都是必要的。以上一个策略作为自博弈对手时，exploitability 停在 0.1 附近；自博弈系数取 0 时，10 次运行全部卡在非纳什点上。
+\textbf{必要性。}隐式的自博弈对手与正的自博弈系数都是必要的：以上一个策略 $\bx_k$ 作为自博弈对手时，exploitability 停在 0.1 附近；自博弈系数取 0 时，每次运行都卡在非纳什点上。
 
-\textbf{对抗性的池。}在由对抗者挑选的池上，\codar{} 收敛，固定份额的规则不收敛。当对抗者挑选池成员时（过期的最佳响应、大量随机策略、纳什支撑上永远打平的纯策略，或学习者关于纳什点的反射），\codar{} 在每种设置下都到达约 $10^{-11}$，最差的单次运行停在 $5.6\times10^{-7}$。同样的池上，PFSP、均匀与 Hedge 权重停在 $10^{-2}$ 到 $0.12$ 之间，并把 23--50\% 的训练权重留给不能击败学习者的成员。
+\textbf{对抗性的池。}当对抗者挑选池成员时（过期的最佳响应、大量随机策略、纳什支撑上永远打平的纯策略，或学习者关于纳什点的反射），\codar{} 仍收敛到 $10^{-11}$。同样的池上，PFSP、均匀与 Hedge 权重把 23--50\% 的训练权重留给不能击败学习者的成员，停在 $10^{-2}$ 到 $0.12$ 之间。
 
 \begin{figure}[t]
 \begin{center}
 \includegraphics[width=0.92\linewidth]{figures/theory_oracle_rate.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{最佳响应 oracle 对精确算法的作用（每个博弈族 10 个博弈）。上：最终 exploitability 随 $\eta$ 的变化（中位数与四分位距）。下：$\eta=16$ 时 exploitability 随步数的变化。Proximal self-play 是空池的 \codar{}；PFSP 与 Uniform FSP 使用与 \codar{} 相同的池。}
+\caption{矩阵博弈上带与不带最佳响应 oracle 时精确 \codar{} 的收敛情况。}
 \label{fig:oracle-rate}
 \end{figure}
 
-\textbf{oracle 的加速。}最佳响应 oracle 对 \codar{} 的加速符合定理~\ref{thm:oracle} 的预测（图~\ref{fig:oracle-rate}）。每一步都把策略锚的精确最佳响应加入池时，定理中的不等式在全部 240 次 \codar{} 运行的每一步都成立。对每个 $\eta\ge4$ 与全部三个博弈族，\codar{} 最终的 exploitability 都低于空池，例如 $\eta=16$ 时在随机 $16\times16$ 博弈上为 $4\times10^{-6}$ 对 $10^{-3}$；$\eta=1$ 时两者都到达数值下限。同一个池上的 PFSP 与均匀权重在 $\eta$ 较小时停在 $10^{-2}$ 附近，因为它们在均衡处仍把固定份额留给与学习者打平的 exploiter。误差为 $0.01$ 的 oracle 只在 exploitability 高于其误差的量级时有帮助，最终与空池接近，与定理的提示一致。这个排序有一处例外：在 spinning-top 博弈、$\eta=64$ 时，PFSP 与均匀权重的最终值更低（$1.5\times10^{-4}$ 与 $9.5\times10^{-5}$，对 $7.6\times10^{-4}$）。
+\textbf{oracle 的加速。}每一步把策略锚的最佳响应加入池，\codar{} 的加速符合定理~\ref{thm:oracle} 的预测（图~\ref{fig:oracle-rate}）。定理~\ref{thm:oracle} 的单步界在每次运行的每一步都成立；对每个 $\eta\ge4$ 与全部三个博弈族，\codar{} 最终的 exploitability 都显著低于空池近端自博弈（例如 $\eta=16$ 时在随机博弈上为 $4\times10^{-6}$ 对 $10^{-3}$）。同一个池上的 PFSP 与均匀加权在 $\eta$ 较小时停在 $10^{-2}$ 附近，因为它们在均衡处仍给打平的 exploiter 保留固定份额；近似 oracle（$\varepsilon=0.01$）则先加速到其误差的量级，之后与空池接近。
 
 \subsection{同预算对比}
 \label{sec:exp-neural}
 
-我们在 OpenSpiel\citep{lanctot2019openspiel} 的 Leduc 扑克\citep{southey2005bayesbluff}、Goofspiel(4)\citep{ross1971goofspiel} 与每人一颗骰子的 Liar's Dice\citep{lisy2015oos} 上，把 \codar{} 与七个基线比较。单网络基线有 PPO 自博弈；两个正则化自博弈方法 \rnad{} 与 MMD-PPO，分别用奖励塑形与 KL 损失实现近端项；以及两个池方法，均匀虚拟自博弈（Uniform FSP）与 PFSP。池方法与 \codar{} 共用对手池、oracle、败率估计器与策略更新，只在把败率估计映射为权重的规则上不同，所以 \codar{} 与 PFSP 的比较隔离出了权重规则的作用。混合基线有使用 PPO 最佳响应的 PSRO 与 Neural Fictitious Self-Play（NFSP）\citep{heinrich2016nfsp}。我们还运行了不带 oracle 的 \codar{}，以及作为上界对照的、使用不消耗对局的精确最佳响应（BR）oracle 的 \codar{}、PFSP 与 PSRO。所有 PPO 方法共用网络与 PPO 超参数，每个方法都在留出的 seed 上按同一套两阶段协议调参（附录~\ref{app:impl}）。每次运行的预算为 $B=4\times10^6$ 局，计入该方法消耗的全部对局，包括 exploiter 的训练与评估。我们报告全树精确 exploitability，Leduc 以筹码为单位，其余博弈以 $\pm1$ 的收益为单位，并用\emph{末段 exploitability}，即预算最后 20\% 上的平均，概括每次运行。表中给出 10 个 seed 上的四分位均值（IQM）与 bootstrap 95\% 置信区间（CI）\citep{agarwal2021precipice}，以及逐 seed 的配对差。
+我们在 OpenSpiel\citep{lanctot2019openspiel} 的 Leduc 扑克\citep{southey2005bayesbluff}、Goofspiel(4)\citep{ross1971goofspiel} 与 Liar's Dice\citep{lisy2015oos} 上，将 \codar{} 与七个基线比较。单网络基线包括 PPO 自博弈、两个基于 PPO 实现的正则化自博弈方法（\rnad{} 与 MMD-PPO），以及两个池方法（均匀虚拟自博弈 FSP\citep{heinrich2015fsp} 与 PFSP；两者与 \codar{} 共用对手池、oracle、败率估计器与策略更新，只在权重规则上不同）。混合基线包括使用 PPO 最佳响应的 PSRO 与 Neural Fictitious Self-Play（NFSP）\citep{heinrich2016nfsp}。为分离 oracle 质量的作用，我们还评估了不带 oracle 的 \codar{}，并使用精确最佳响应（BR）oracle 运行了 \codar{}、PFSP 与 PSRO。所有 PPO 方法共用网络结构与 PPO 超参数，每个方法都在留出 seed 上按同一套两阶段协议调参，总预算统一为 $B=4\times10^6$ 局，计入学习者、exploiter 与评估的全部对局（附录~\ref{app:impl}）。我们报告\emph{末段 exploitability}——即 $[0.8B,B]$ 上全树精确 exploitability 的均值——给出 10 个 seed 上的四分位均值（IQM）与 bootstrap 95\% 置信区间（CI）\citep{agarwal2021precipice}。
 
 \begin{figure}[t]
 \begin{center}
 \includegraphics[width=0.95\linewidth]{figures/main_curves.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{训练过程中的精确 exploitability（10 个 seed 的均值与 95\% CI）。上：单网络。下：混合，并重复画出 \codar{} 的学习者作为参照。灰带为预算的最后 20\%。}
+\caption{三个主实验博弈在训练过程中的精确 exploitability（10 个 seed）。}
 \label{fig:main}
 \end{figure}
 
 \begin{table}[t]
-\caption{同预算下的末段 exploitability（10 个 seed 的 IQM [95\% CI]；越低越好）。粗体为每个博弈中最好的单网络。精确 BR 各行是上界对照。更多指标见附录表~\ref{tab:main-full}。}
+\caption{预算 $B=4\times10^6$ 下的末段 exploitability（IQM [95\% CI]，10 个 seed；粗体为最佳单网络）。}
 \label{tab:main}
 \begin{center}
 \scriptsize
@@ -654,7 +648,7 @@ PSRO，精确 BR & 混合 & $<10^{-15}$ & 0.108 [0.106, 0.115] & 0.172 [0.168, 0
 \end{table}
 
 \begin{table}[t]
-\caption{末段 exploitability 的逐 seed 配对差（前者减后者；IQM [95\% CI]），括号内为 10 个 seed 中前者更好的个数。}
+\caption{末段 exploitability 的配对差（IQM [95\% CI] 及 10 个 seed 中胜出的个数）。}
 \label{tab:paired}
 \begin{center}
 \scriptsize
@@ -676,23 +670,19 @@ $\bar{\bq}$ $-$ NFSP & $-0.106$ [$-0.146$, $-0.091$] (10) & $+0.178$ [$+0.128$, 
 \end{center}
 \end{table}
 
-在单网络中，\codar{} 在 Goofspiel(4) 与 Leduc 扑克上的末段 exploitability 最低（表~\ref{tab:main} 与表~\ref{tab:paired}）。在这两个博弈上，它在全部 10 个 seed 上都优于 \rnad{}、MMD-PPO 与不带 oracle 的 \codar{}，末段 exploitability 比 \rnad{} 分别低 73\% 与 36\%。与只在权重规则上不同的 PFSP 相比，它在 Goofspiel(4) 上 10/10 个 seed 更好，在 Leduc 上 7/10 个 seed 更好。在 Liar's Dice 上，它优于 \rnad{}、MMD-PPO 与 PFSP，排在 Uniform FSP 之后，两者配对差的 CI 包含零。
+在单网络中，\codar{} 在 Goofspiel(4) 与 Leduc 扑克上取得最低的末段 exploitability（表~\ref{tab:main} 与表~\ref{tab:paired}）。在这两个博弈上，它在全部 10 个 seed 上都优于 \rnad{}、MMD-PPO 与不带 oracle 的 \codar{}，将 \rnad{} 的末段 exploitability 分别降低 73\% 与 36\%。与只在权重规则上不同的 PFSP 相比，它在 Goofspiel(4)、Leduc 与 Liar's Dice 上分别赢下 10/10、7/10 与 10/10 个 seed，三个博弈上的配对 CI 均严格在零以下。在 Liar's Dice 上，它优于 \rnad{}、MMD-PPO 与 PFSP，排在 Uniform FSP 之后，两者的配对 CI 包含零。
 
-不带池的方法在早期达到最低点之后退化，\codar{} 则基本保持住了水平（图~\ref{fig:main}）。在 Goofspiel(4) 与 Leduc 上，不带池的方法在预算的前 10\% 内达到各自最低的 exploitability，最终比最低点高 0.7--1.1，而 \codar{} 最终比自己的最低点高 0.25--0.36（附录表~\ref{tab:degradation}）。去掉 oracle 后，\codar{} 在这两个博弈上失去大部分增益，所以增益来自进入池的 exploiter。\codar{} 剩下的尖峰（在 Goofspiel(4) 上末段最差 exploitability 为 0.80）来自败率估计滞后于真实败率的突变：在那里检测到的 17 个漏洞中，有 14 个在出现时权重低于 0.01；在 \S\ref{sec:exp-abl} 的消融中，使用精确的成员败率降低了末段 exploitability。
+无池方法在早期峰值之后大幅退化，而 \codar{} 稳定保持了水平（图~\ref{fig:main}、附录表~\ref{tab:degradation}）：在 Goofspiel(4) 与 Leduc 上，无池基线都在预算的前 10\% 内达到峰值，随后退化 0.7--1.1，而 \codar{} 保持在自身最佳 checkpoint 的 0.25--0.36 以内。去掉 oracle 会消除绝大部分增益，说明收益来自入池的 exploiter。换用精确 BR oracle 后，\codar{} 在三个博弈上的末段 exploitability 进一步下降（至 0.215、0.885 与 0.269）。在 Leduc 上使用精确 BR 时，PFSP 达到更低值（0.709）：按 Leduc 的 26 筹码收益跨度归一化缩小了归一化领先 $\mu$，因此 PFSP 固定的 50\% 池份额给精确 BR 分配了比 $\tfrac{c\mu}2$ 更大的权重。
 
-更强的 oracle 在 Liar's Dice 上帮助了 \codar{}（$0.355\to0.269$），在另外两个博弈上变化不大。都使用精确最佳响应时，PFSP 在 Leduc 上领先（0.709 对 0.885）：那里 exploiter 的领先只占 26 筹码收益跨度的一小部分，所以权重 $c\mu/2$ 一直很小，而 PFSP 把固定的一半训练权重交给池。
-
-同一次 \codar{} 运行的时间平均 $\bar{\bq}$ 与专门的混合方法相比有竞争力。它只需要每个外环步保存一个快照，在 Leduc（8/10 个 seed）与 Liar's Dice（10/10）上优于使用相同 PPO 最佳响应的 PSRO，在 Goofspiel(4) 上接近（0.011 对 0.004）；NFSP 在 Leduc 上更好。单个学习者在全部三个博弈上都高于这些混合。
-
-exploiter 的领先给出校准良好的 exploitability 下界。oracle 的每次入池都给出 \S\ref{sec:oracle-rate} 中的下界 $[\ell(\hat\bx;\hat\by)-\tfrac12]^+$，由评估对局估计。在主实验的 3950 次入池中，单侧 95\% 置信下界超过真实 exploitability 3 次，为正（即提供了信息）2487 次。
+同一次 \codar{} 运行的时间平均 $\bar{\bq}$——每个外环步仅存一个快照——与专门的混合方法相比同样有竞争力，在 Leduc（8/10 个 seed）与 Liar's Dice（10/10）上优于 PSRO (PPO BR)，在 Goofspiel(4) 上也保持很低水平（0.011 对 0.004）。最后，\S\ref{sec:oracle-rate} 的实测 exploiter 下界在主实验中校准良好：其单侧 95\% 置信下界在 63\% 的入池评估中为正，超过真实 exploitability 的比例低于 0.1\%（附录~\ref{app:impl}）。
 
 \subsection{扩展到大型博弈}
 \label{sec:exp-scale}
 
-我们在 3$\times$3 abrupt Dark Hex 与 abrupt Phantom Tic-Tac-Toe 上训练六种方法。这是两个不完美信息博弈，约有 $2.7\times10^{10}$ 个节点，信息集分别为 $2.7\times10^{7}$ 与 $2.3\times10^{7}$ 个；预算相同，5 个 seed。各方法沿用在 Goofspiel(4) 上选出的配置，不再调参。exploitability 用 exp-a-spiel\citep{rudolph2025reevaluating} 在全树上精确计算，末段 exploitability 取 $0.8B$、$0.9B$ 与 $B$ 处三个 checkpoint 的平均。
+为检验方法能否在无需重新调参的情况下迁移到大得多的博弈树，我们在 3$\times$3 abrupt Dark Hex 与 abrupt Phantom Tic-Tac-Toe（TTT）上评估六种方法——两者各有约 $2.7\times10^{10}$ 个博弈树节点——在预算 $B=4\times10^6$、5 个 seed 下直接沿用 Goofspiel(4) 上选定的配置。精确 exploitability 用 exp-a-spiel\citep{rudolph2025reevaluating} 计算。
 
 \begin{table}[t]
-\caption{大型博弈：末段 exploitability（5 个 seed 的 IQM [95\% CI]），以及逐 seed 配对差 \codar{} $-$ 方法，括号内为 5 个 seed 中 \codar{} 更好的个数。}
+\caption{两个大型博弈上的末段 exploitability 与配对差（IQM [95\% CI]，5 个 seed）。}
 \label{tab:scale}
 \begin{center}
 \scriptsize
@@ -714,19 +704,19 @@ PSRO (PPO BR) & 混合 & 0.355 [0.290, 0.386] & $+0.092$ [$+0.010$, $+0.159$] (0
 \end{center}
 \end{table}
 
-\codar{} 在 Dark Hex 上的末段 exploitability 是单网络中最低的，在 Phantom Tic-Tac-Toe 上与 \rnad{} 持平，两者相差 0.009，CI 包含零（表~\ref{tab:scale}）。它在 Phantom Tic-Tac-Toe 上与 PSRO 的混合相当，在 Dark Hex 上落后 0.09。使用相同的池与 oracle 的 PFSP 在两个博弈上都差得多（0.74 与 0.83），自博弈则几乎完全可被利用。在最终策略之间的抽样循环赛中，\codar{} 在 Dark Hex 上的平均得分最高（0.510），在 Phantom Tic-Tac-Toe 上与最高分相差不到 0.001。让每个 checkpoint 与自己更早的 checkpoint 对局可以看到，只有自博弈会输给过去的自己，占其 checkpoint 的 25--29\%；对 \codar{}，更早的 checkpoint 的最大领先（在各 checkpoint 上平均）在 Dark Hex 上为 0.009，在 Phantom Tic-Tac-Toe 上为负（附录图~\ref{fig:scale-history}）。
+\codar{} 在 Dark Hex 上的末段 exploitability 是单网络中最低的，在 Phantom Tic-Tac-Toe 上与 \rnad{} 并列最好，并在 Phantom Tic-Tac-Toe 上与多网络的 PSRO 混合相当（表~\ref{tab:scale}）。使用完全相同的池与 oracle 的 PFSP 在两个博弈上都明显退化，朴素自博弈则几乎完全可被利用。在最终策略之间的循环赛中，\codar{} 在 Dark Hex 上胜率最高，在 Phantom Tic-Tac-Toe 上与最高者持平；让每个 checkpoint 与自己更早的 checkpoint 对局可以看到，只有朴素自博弈会循环地输给过去的自己（附录图~\ref{fig:scale-history}）。
 
 \subsection{对手池带来什么}
 \label{sec:exp-mech}
 
-主实验中混着几种效应。我们在 Leduc 与 Goofspiel(4) 上做了四个受控实验把它们分开，每个实验 6 个 seed，沿用主实验的配置（设置与完整的表见附录~\ref{app:mech}）。
+为分离对手池与权重规则各自的作用，我们在 Leduc 与 Goofspiel(4) 上进行了四个受控实验，各 6 个 seed（完整协议与表格见附录~\ref{app:mech}）。
 
 \begin{figure}[t]
 \begin{center}
 \includegraphics[width=0.78\linewidth]{figures/hidden_hole.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{隐藏漏洞（6 个 seed）。上：修复所需 rollout 数的中位数，横轴为自博弈对手到达所埋漏洞的概率；虚线以上的点表示未修复。下：对手到达概率最低一档中，所埋动作的概率。}
+\caption{Leduc 扑克上所埋非自博弈轨迹漏洞的修复情况（6 个 seed）。}
 \label{fig:mech}
 \end{figure}
 
@@ -735,22 +725,22 @@ PSRO (PPO BR) & 混合 & 0.355 [0.290, 0.386] & $+0.092$ [$+0.010$, $+0.159$] (0
 \includegraphics[width=0.78\linewidth]{figures/forgetting.pdf}
 \end{center}
 \vspace{-6pt}
-\caption{从接近纳什的起点出发的保持情况（6 个 seed 的 IQM 与 95\% CI）。上：exploitability 相对起始网络的上升。下：归档的早先版本中，后来又击败学习者的比例。}
+\caption{Goofspiel(4) 上从接近纳什起点出发的均衡保持情况（6 个 seed）。}
 \label{fig:retention}
 \end{figure}
 
-\textbf{隐藏漏洞。}对手池能修补自博弈几乎走不到的漏洞。我们把 counterfactual regret minimization（CFR+）\citep{tammelin2014cfrplus}的平均策略蒸馏进一个网络，并在这样的信息集上埋入漏洞：学习者自己经常到达，而自博弈对手以受控的概率到达，概率从 $[0.3,1)$ 一直到 $10^{-3}$ 以下。池里只有受损网络的精确最佳响应，\rnad{} 的训练不使用它。在 Leduc 上（图~\ref{fig:mech}），\rnad{} 的修复时间随对手到达概率的降低而变长；在到达概率约 $2\times10^{-6}$ 的最低一档，它在 256 个 rollout 内 6 个 seed 一个也没有修复。攻击者在池里时，\codar{} 在全部 6 个 seed 上修复了漏洞（中位数 21 个 rollout），PFSP 也是如此（中位数 8.5）。PFSP 更快，是因为它给攻击者约 0.17 的固定系数，而 \codar{} 给的是 0.03--0.06，它的权重跟随攻击者约 0.02 的小幅领先。固定系数的代价是 exploitability：在最低一档，PFSP 最终为 1.61，\codar{} 为 1.30，\rnad{} 为 1.81。在 Goofspiel(4) 上，没有方法修复最低一档，因为学习者在别的分支上反制了这个确定性的攻击者，攻击者不再赢，而漏洞依然存在。
+\textbf{隐藏漏洞。}为检验对手池能否修补自博弈很少到达的弱点，我们从 counterfactual regret minimization（CFR+）\citep{tammelin2014cfrplus}蒸馏出的接近纳什的网络出发，在学习者常去、而自博弈对手到达概率逐档降低的信息集上埋入次优动作，并将受损网络的精确最佳响应放入池中。在 Leduc 上（图~\ref{fig:mech}），无池 \rnad{} 的修复时间随对手到达概率下降而急剧延长，在最低到达档中 6 个 seed 全部失败；\codar{} 与 PFSP 在全部 6 个 seed 上完成修复，且 \codar{} 按领先幅度而非大的固定份额给攻击者加权，最终整体 exploitability 更低（1.30，PFSP 为 1.61，\rnad{} 为 1.81）。
 
-\textbf{保持。}对手池能让接近纳什的网络留在纳什附近。从同一个蒸馏网络出发，不埋漏洞（exploitability 在 Goofspiel(4) 上为 $3.8\times10^{-4}$，在 Leduc 上为 $0.0088$），每种方法再训练 $10^6$ 局。在 Goofspiel(4) 上（图~\ref{fig:retention}），不带池的方法几乎完全丢掉了均衡：exploitability 的上升，\rnad{} 为 0.98，MMD-PPO 为 0.88，自博弈为 1.00。\codar{} 上升 0.14 [0.09, 0.30]，在全部 6 个 seed 上都小于每个不带池的方法；PFSP 上升 0.28，所以保持是对手池带来的性质。在 Leduc 上，每种方法都漂回主实验中各自的水平附近，其中 \codar{} 上升得最少（1.19 对 1.32--1.64；只对自博弈显著）。漂移集中在自博弈走不到的地方。在自博弈对手到达概率低于 $10^{-3}$ 的信息集上，Leduc 上相对起点的每次到达损失，\codar{} 为 0.0030，PFSP 为 0.0040，不带池的方法为 0.0093--0.0157，而到达概率较高的各档差别不大（附录图~\ref{fig:drift}）。可见隐藏漏洞与漂移出自同一个机制：自博弈在它走不到的地方不产生梯度，参数共享使策略的这些部分发生漂移，而会走到那里的池成员补上了缺失的信号。循环回到已被击败的版本则是另一种效应，单靠近端项就能避免：面对自己早先版本的归档，只有自博弈（Leduc 上 23\% 的版本）与 MMD-PPO（6\%）会输给曾经击败过的版本。把 $c$ 减半或加倍不改变这些结果。
+\textbf{保持。}为检验对手池能否防止均衡漂移，我们从未受损的 CFR+ 网络继续训练（图~\ref{fig:retention}）。在 Goofspiel(4) 上，无池方法几乎完全丢失均衡（exploitability 上升 0.88--1.00），而 \codar{} 仅上升 0.14（全部 6 个 seed 均优于每个无池方法），PFSP 上升 0.28，且 $c$ 减半或加倍结论不变。按对手到达概率分档揭示了两类现象的共同成因：自博弈在极少到达的分支上不产生梯度，参数共享扰动了那里的动作，而会进入这些分支的池成员提供了恢复信号（附录图~\ref{fig:drift}）。面对过去快照归档，单靠近端正则化已能防止循环回到被击败的版本。
 
-\textbf{沉睡成员。}成员一旦重新开始赢，\codar{} 就立刻把权重还给它，并且很少把训练花在不再赢的成员上。累计历史的权重（如 Hedge）会让一个被压制了 $T$ 轮的成员“沉睡”：它必须再赢大约 $T$ 轮才能拿回权重。我们把一个 \rnad{} 底座网络的精确最佳响应与三个随机网络诱饵一起放进池，让每种规则把它压制 $T\in\{24,48,96,192\}$ 个 rollout，然后把学习者重置回底座，重新打开这个漏洞。对 \codar{}，再次修复所需的时间与 $T$ 无关（Goofspiel(4) 上约 1 个 rollout，Leduc 上 3--6 个）。Hedge 在 $T=192$ 时需要 31.5 与 37.7 个 rollout（附录图~\ref{fig:sleeper}），不带池的 \rnad{} 在 Leduc、$T=192$ 时 96 个 rollout 内没有再次修复。不能击败学习者的成员（$\ell\le0.51$）在 \codar{} 下，在 Goofspiel(4) 上持有 0.6--1.5\% 的训练权重，在 Leduc 上持有 11--13\%，而 PFSP 与 Hedge 为 44--50\%，固定比例为 28--35\%。在 Leduc 上，这一设置下固定份额的规则最终的末段 exploitability 更低（PFSP 为 0.57--0.65，固定比例为 0.48--0.59，对 0.72--0.81）。移动锚在这里的表现与 \codar{} 相同，因为它的失败需要一个打平的池。
+\textbf{沉睡成员。}为检验旧漏洞重新打开时的恢复速度，我们将最佳响应攻击者与随机诱饵放入池，让学习者压制攻击者 $T$ 个 rollout 后重置学习者以重新打开漏洞。由于 \codar{} 无状态，无论压制时长 $T$ 多久都在几个 rollout 内完成重修，而累计历史的 Hedge 出现严重的唤醒延迟，长时间压制后超过 30 个 rollout（附录表~\ref{tab:sleeper}、图~\ref{fig:sleeper}）。同时，未击败学习者的对手在 \codar{} 下只占极少权重，而在 PFSP 与 Hedge 下占近一半训练权重。
 
-\textbf{开放池。}池由外部智能体组成且没有 oracle 时，\codar{} 把训练留给仍能击败学习者的成员。外部成员为 4 到 64 个（早期的 CFR+ 迭代、小的旧版网络、脚本对手、均匀策略、随机网络及重复成员）时，学习者已经击败的成员在 \codar{} 下，在 Goofspiel(4) 上持有 0.3--1.1\% 的训练权重，在 Leduc 上持有 4--6\%，而在 PFSP 下为 42--46\%，在 Uniform FSP 下为 9--19\%，且与池的大小无关（附录图~\ref{fig:open-pool}）。此时每种规则下的 exploitability 都取决于池成员知道什么，而这个池在没有 oracle 时不能稳定地降低它。
+\textbf{开放池。}为检验对弱外部智能体的鲁棒性，我们向池中放入 4 至 64 个异构对手（早期 CFR+ 迭代、小型旧网络、脚本对手与随机策略）。在所有池规模下，\codar{} 分给已被击败成员的总权重都只有几个百分点（Goofspiel(4) 不到 1.1\%，Leduc 为 4--6\%），而 PFSP 将超过 40\% 的训练权重花在它们身上（附录图~\ref{fig:open-pool}）。
 
 \subsection{消融}
 \label{sec:exp-abl}
 
-附录图~\ref{fig:ablations} 每次只改变 \codar{} 的一个设计要素（$10^6$ 局，6 个 seed，与基准配置配对）。oracle 最重要：去掉它使末段 exploitability 在 Goofspiel(4) 上升高 0.76，在 Leduc 上升高 0.42。在整个外环步内冻结池权重会破坏 \S\ref{sec:primal} 的隐式配对，代价为 0.38 与 0.15；池容量取 4 的代价为 0.32 与 0.24。精确的成员败率（$\xi_k=0$）在 Goofspiel(4) 上有帮助（$-0.09$，6/6 个 seed），说明估计滞后是那里剩下的主要误差；把 oracle 占预算的份额加倍到 24\% 在 Leduc 上有帮助（$-0.20$，5/6 个 seed）。移动对偶锚、采样分布、自博弈对手的刷新频率，以及 KL 形式的近端项，在这个预算下对末段 exploitability 的影响都在 CI 之内；移动锚的失败出现在 \S\ref{sec:exp-theory} 的精确设置中。
+对 \codar{} 的单因素消融（附录图~\ref{fig:ablations}）说明三点。第一，去掉 oracle、在整个外环步内冻结池权重（破坏 \S\ref{sec:primal} 的隐式配对），或把池容量缩小到 4，在两个博弈上造成的退化最大。第二，用精确败率代替估计败率（$\xi_k=0$）在 Goofspiel(4) 上进一步降低末段 exploitability（6/6 个 seed），加倍 oracle 的预算份额在 Leduc 上进一步降低它（5/6 个 seed），这指明了剩余近似误差主要来自估计滞后与 oracle 强度。第三，采样分布、自博弈对手的刷新频率与 KL 形式的近端项，影响都在 CI 之内。
 
 % ----------------------------------------------------------------------
 \section{相关工作}
@@ -759,7 +749,7 @@ PSRO (PPO BR) & 混合 & 0.355 [0.290, 0.386] & $+0.092$ [$+0.010$, $+0.159$] (0
 
 对手池方法保留一池对手，把均衡放在混合里。Double Oracle 与 PSRO\citep{mcmahan2003doubleoracle,lanctot2017psro,muller2020generalized,mcaleer2020pipeline}在外部求解池上的元博弈\citep{wellman2006egta}，PFSP 与联赛训练\citep{vinyals2019alphastar}按胜率分配采样比例，NFSP\citep{heinrich2015fsp,heinrich2016nfsp}用一个单独的网络学习历史平均策略。它们部署的是 checkpoint 的混合或平均网络。\codar{} 使用同样的池与 oracle，并把保证留在正在训练的网络上。
 
-正则化自博弈给出单个网络的保证，但没有对手池。R-NaD 与 MMD\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}在收益或策略空间使用一个周期移动或逐渐退火的锚，乐观与外梯度方法\citep{daskalakis2018optimism,mertikopoulos2019omd,nemirovski2004prox,cen2021extragradient}用外推项起到类似的稳定作用；两者都是近端点法\citep{rockafellar1976ppa}的显式近似\citep{mokhtari2020ppa}。它们只沿自博弈的轨迹训练，这也是 OpenAI Five 与 AlphaStar 额外保留历史对手的原因\citep{openai2019dota,vinyals2019alphastar,czarnecki2020spinning}。\codar{} 的策略更新就是近端点法的一步，池为空时 \codar{} 退化为近端点法。
+正则化自博弈给出单个网络的保证，但没有对手池。R-NaD 与 MMD\citep{perolat2021rnad,perolat2022stratego,sokota2023mmd}在收益或策略空间使用一个周期移动或逐渐退火的锚，乐观与外梯度方法\citep{daskalakis2018optimism,mertikopoulos2019omd,nemirovski2004prox,cen2021extragradient}用外推项起到类似的稳定作用；两者都是近端点法\citep{rockafellar1976ppa}的显式近似\citep{mokhtari2020ppa}。它们只沿自博弈的轨迹训练，这也是 OpenAI Five 与 AlphaStar 额外保留历史对手的原因\citep{openai2019dota,vinyals2019alphastar,czarnecki2020spinning}。\codar{} 的策略更新是单调算子“反对称自博弈算子 + 光滑凸池惩罚 $\Psi_P$ 的梯度”上的一步隐式近端点更新，池为空时退化为近端点法。
 
 乘性权重会累计历史，\codar{} 的无状态投影避免了这一点。PSRO 一族的元求解器，即 Hedge、投影复制子动力学与乘性权重更新（MWU），以及 OpenAI Five 的对手采样器，多数使用乘性权重\citep{lanctot2017psro,mcaleer2022anytime,dinh2022odo,openai2019dota,freund1999hedge}。一个成员被压制 $T$ 轮之后，即使重新克制学习者，也要再赢大约 $T$ 轮才能拿回权重。这就是在线学习中 Fixed Share 类算法所处理的沉睡问题\citep{herbster1998tracking}。反过来，打平的成员会一直保留正的权重。部署时间平均的方法不受影响，但乘性权重的 last-iterate 在零和博弈中不收敛\citep{bailey2018mwu}，保留着权重的打平成员还可能把学习者钉在非纳什点上（命题~\ref{prop:rps}）。附录表~\ref{tab:related} 给出各方法的对照。
 
@@ -767,7 +757,7 @@ PSRO (PPO BR) & 混合 & 0.355 [0.290, 0.386] & $+0.092$ [$+0.010$, $+0.159$] (0
 \section{结论}
 % ----------------------------------------------------------------------
 
-\codar{} 让单个网络与自己、与开放的对手池对局。把对偶锚固定在纯自博弈上，把移动锚放在策略更新里，就使策略移动与池权重共用一笔预算，即到均衡的距离。对精确算法，由此得到所训练的策略对任意池序列的 last-iterate 收敛、显式的速率，以及最佳响应 oracle 的定量增益。在 PPO 实现上，以相同的预算、与按同一协议调参的基线相比，\codar{} 的学习者在 Goofspiel(4)、Leduc 扑克与 3$\times$3 abrupt Dark Hex 上取得单网络中最低的末段 exploitability，在 abrupt Phantom Tic-Tac-Toe 上与 \rnad{} 持平，在 Liar's Dice 上排在 Uniform FSP 之后。受控实验表明，对手池能修补自博弈几乎走不到的漏洞，并让接近纳什的网络留在原地；权重规则会把权重立刻还给重新打开的漏洞，并且很少把训练花在不再赢的成员上。由于权重跟随对手的领先幅度，小幅的领先修复得比 PFSP 的固定份额慢。更快地发现小幅领先、欧氏理论的 KL 版本，以及跨越池变化的 last-iterate 速率，是主要的开放方向。
+\codar{} 让单个网络与自己、与开放的对手池对局。把对偶锚固定在纯自博弈上，把移动锚放在策略更新里，就使策略移动与池权重共用一笔预算，即到均衡的距离。对精确算法，由此得到所训练的策略对任意池序列的 last-iterate 收敛、显式的速率，以及最佳响应 oracle 的定量单步增益。在 PPO 实现上，以相同的预算、与按同一协议调参的基线相比，\codar{} 的学习者在 Goofspiel(4)、Leduc 扑克与 3$\times$3 abrupt Dark Hex 上取得单网络中最低的末段 exploitability，在 abrupt Phantom Tic-Tac-Toe 上与 \rnad{} 并列最好，在 Liar's Dice 上排在 Uniform FSP 之后。受控实验表明，对手池能修补自博弈很少到达的漏洞，并防止接近纳什的网络漂离；无状态的权重规则会立刻把权重还给重新打开的漏洞，并且只给已被击败的对手极少的权重。针对小幅领先自适应地缩放对偶强度、欧氏理论的 Bregman（KL）推广，以及跨越池变化的 last-iterate 速率，是自然的后续方向。
 
 \subsubsection*{可复现性声明}
 \S\ref{sec:prelim}--\ref{sec:alg} 给出算法的全部定义，\S\ref{sec:theory} 与附录~\ref{app:proofs} 给出全部证明。\S\ref{sec:impl} 与附录~\ref{app:impl} 给出实现、评估协议、调参网格与每个选定的配置。源代码包括有限维求解器与检查、PPO 实现、全部基线、带有全部配置与 seed 的实验入口，以及从原始输出生成每一张图与表的脚本；代码开源在作者的 GitHub：\url{https://github.com/GICF-E/CoDA-R}。
@@ -791,7 +781,7 @@ PSRO (PPO BR) & 混合 & 0.355 [0.290, 0.386] & $+0.092$ [$+0.010$, $+0.159$] (0
 
 记 $\bz:=\esp+c\aug(\bx)$，于是 $\bw=\Proj_\simplex(\bz)$；记 $z_{\mathrm{sp}}=1+\tfrac c2$ 为 $\bz$ 的自博弈坐标。
 
-(a) 由投影不等式，$\esp=\Proj_\simplex(\bz)$ 当且仅当对所有 $\bu\in\simplex$ 有 $(\bz-\esp)^\top(\bu-\esp)\le0$。由于 $\bz-\esp=c\aug$，这个条件变为对所有 $\bu$ 有 $\aug^\top \bu\le\aug^\top \esp=\tfrac12$。线性函数在单纯形上的最大值在顶点取到，所以这等价于 $\max_j\tilde\ell_j\le\tfrac12$。自博弈坐标恰为 $\tfrac12$，故又等价于 $\max_{i\in P}\ell_i\le\tfrac12$。
+(a) 由投影不等式，$\esp=\Proj_\simplex(\bz)$ 当且仅当对所有 $\bu\in\simplex$ 有 $(\bz-\esp)^\top(\bu-\esp)\le0$。由于 $\bz-\esp=c\aug$，这个条件变为对所有 $\bu$ 有 $\aug^\top \bu\le\aug^\top \esp=\tfrac12$。线性函数在单纯形上的最大值在顶点取到，所以这等价于 $\max_j\tilde\ell_j\le\tfrac12$。自博弈坐标恰为 $\tfrac12$，故又等价于 $\max_{1\le i\le N}\ell_i\le\tfrac12$。
 
 (b) 把一点权重从成员 $i$ 挪给自博弈：取 $\bu=\bw+\theta(\esp-\be_i)$，$0<\theta\le w_i$，它仍在 $\simplex$ 中。由投影不等式，
 \[
@@ -935,7 +925,7 @@ a(\bx)=1-\wsp\ \ge\ \operatorname{clip}(\tfrac{c\mu}2,0,1).
 \]
 败率不超过 1，故 $\mu\le\tfrac12$，而 $c\le4$ 给出 $\tfrac{c\mu}2\le1$；因此 $a(\bx)\ge\tfrac c2\mu^+$。
 
-\textit{第 2 步：池压力有下界。}引理~\ref{lem:A} 给出 $b(\bx)\ge\tfrac1c\|\bw-\esp\|^2$，而 $\|\bw-\esp\|^2=\sum_{i\in P}w_i^2+(1-\wsp)^2\ge a^2$。结合第 1 步，
+\textit{第 2 步：池压力有下界。}引理~\ref{lem:A} 给出 $b(\bx)\ge\tfrac1c\|\bw-\esp\|^2$，而 $\|\bw-\esp\|^2=\sum_{i=1}^Nw_i^2+(1-\wsp)^2\ge a^2$。结合第 1 步，
 \[
 b(\bx)\ \ge\ \tfrac1c\,a(\bx)^2\ \ge\ \tfrac c4\,(\mu^+)^2 .
 \]
@@ -967,7 +957,7 @@ L_k(\bx,\brho):=\brho^\top\bell(\bx)-\tfrac1{2c}\|\brho-\brho_k\|^2 ,\qquad \bx\
 \label{prop:coda}
 对固定的池与精确步，$\varphi(\brho_{k+1})\ge\varphi(\brho_k)+\tfrac1{2c}\|\brho_{k+1}-\brho_k\|^2$，从而 $\sum_k\|\brho_{k+1}-\brho_k\|^2\le2c$。此外，
 \[
-\max_{i\in P}\ell_i(\bx_{k+1})-v^*\ \le\ \frac{\sqrt2}{c}\,\|\brho_{k+1}-\brho_k\|\ \longrightarrow\ 0 ,\qquad v^*-\varphi(\brho_K)\ \le\ \frac{1}{cK} .
+\max_{1\le i\le N}\ell_i(\bx_{k+1})-v^*\ \le\ \frac{\sqrt2}{c}\,\|\brho_{k+1}-\brho_k\|\ \longrightarrow\ 0 ,\qquad v^*-\varphi(\brho_K)\ \le\ \frac{1}{cK} .
 \]
 \end{proposition}
 \textit{证明。}$L_k$ 关于 $\bx$ 是仿射的，关于 $\brho$ 是强凹的，$X$ 与 $\simplex_N$ 是紧凸集，所以由 \citet{sion1958} 的 minimax 定理，鞍点存在；又因为正则项与 $\bx$ 无关，可以把它提到 $\min_\bx$ 之外：
@@ -1048,7 +1038,7 @@ R-NaD / MMD & 单网络 & 移动锚 & 是 & 否 & 否 & 移动量 \\
 % ----------------------------------------------------------------------
 
 \begin{table}[!htbp]
-\caption{\codar{} 的 PPO 实现的设置。$n_i$ 为成员 $i$ 在该 rollout 中分到的局数。}
+\caption{\codar{} 的 PPO 实现的设置。}
 \label{tab:settings}
 \begin{center}
 \footnotesize
@@ -1059,7 +1049,7 @@ R-NaD / MMD & 单网络 & 移动锚 & 是 & 否 & 否 & 移动量 \\
 PPO & 广义优势估计\citep{schulman2016gae}，$\lambda=0.95$、$\gamma=1$；裁剪系数 0.2；4 个 epoch；minibatch 为 256；价值系数 0.5；梯度范数裁剪为 1；学习率恒为 $3\times10^{-4}$ \\
 网络 & 策略与价值共用的多层感知机，两个隐藏层，各 128 个单元 \\
 日程 & 一个 rollout 为 512 局；一个外环步为 32 个 rollout \\
-败率估计 & 每个成员一个指数滑动平均，步长 $\beta_i=n_i/(n_i+64)$；rollout 均值偏离估计超过 2.5 个标准误时重置历史 \\
+败率估计 & 每个成员一个指数滑动平均，步长 $\beta_i=n_i/(n_i+64)$（$n_i$ 为成员 $i$ 在该 rollout 中的局数）；rollout 均值偏离估计超过 2.5 个标准误时重置历史 \\
 采样 & 对手按 $(\bw_P,\wsp)$ 抽取，自博弈的下限为 0.1；至多 25\% 的对局用于探测上置信界超过 $\tfrac12$ 的零权重成员，这些对局的梯度权重为零 \\
 自博弈对手 & 当前参数的冻结副本，每个 rollout 刷新一次 \\
 近端项 & R-NaD 式的、朝策略锚的奖励塑形；策略锚在每个外环步结束时移动 \\
@@ -1071,11 +1061,11 @@ Oracle & 针对冻结的学习者训练 20 个 rollout 的 PPO exploiter，经 2
 \end{center}
 \end{table}
 
-\textbf{实现。}表~\ref{tab:settings} 列出了各项设置。每个 rollout 之后，对局结果更新败率估计 $\hat{\bell}$，权重重新投影，所以 \S\ref{sec:primal} 中的配对 $\bw=\bw(\bx_{k+1})$ 由策略与权重的交替更新来逼近。每一局都乘以所属臂的重要性比，所以期望更新遵循系数 $(\bw_P,1)$。探测对局只更新败率估计。精确 BR 对照按与 PPO oracle 相同的日程放入全树最佳响应。
+\textbf{实现。}表~\ref{tab:settings} 列出了各项设置。每个 rollout 之后，对局结果更新败率估计 $\hat{\bell}$，权重重新投影，所以 \S\ref{sec:primal} 中的配对 $\bw=\bw(\bx_{k+1})$ 由策略与权重的交替更新来逼近。每一局都乘以所属臂的重要性比，所以期望更新遵循系数 $(\bw_P,1)$。探测对局只更新败率估计。精确 BR 对照按与 PPO oracle 相同的日程放入全树最佳响应。在主实验的 3950 次入池中，$[\ell(\hat\bx;\hat\by)-\tfrac12]^+$ 的单侧 95\% 置信下界为正 2487 次（63.0\%），超过真实 exploitability 仅 3 次（0.08\%）。
 
 \textbf{预算与评估。}预算计入一个方法消耗的每一局：学习者的对局（含探测对局）、exploiter 的训练、入池评估、全池扫描，以及 PSRO 的元博弈对局。熵系数在 $0.8B$ 局之后保持不变，所以末段 $[0.8B,B]$ 是在固定的熵系数下测量的。exploitability 在 $0.8B$ 之前按对数间隔评估 12 次，在末段每 8 个 rollout 评估一次，两次评估之间保持上一次的值。除末段 exploitability 外，我们还报告末段最差 exploitability（末段上的最大值）与终点 exploitability（$B$ 处的值）。主实验使用 seed 100--109，消融与受控实验使用 100--105，大型博弈使用 100--104；调参使用 seed 900--902，它们不进入任何报告的表。
 
-\textbf{调参。}每个被调参的方法有 9 个配置：3 个最终熵系数 $\{0.01,0.003,0.001\}$ 乘以一个方法参数的 3 个取值（\rnad{} 与 MMD-PPO 为 $\eta\in\{0.05,0.1,0.2\}$；自博弈为学习率 $\{10^{-4},3\times10^{-4},10^{-3}\}$；Uniform FSP 为自博弈份额 $\{0.5,0.8,0.9\}$；PFSP 为指数 $\{1,2,3\}$；\codar{} 在 Leduc 上为 $c\in\{12,24,48\}$，在其余博弈上为 $\{3,6,15\}$；PSRO 为最佳响应的 rollout 数 $\{10,20,40\}$）。NFSP 使用它的 anticipatory 参数 $\{0.05,0.1,0.2\}$ 乘以学习率 $\{10^{-3},3\times10^{-3},10^{-2}\}$。第一阶段在三个调参 seed 上以预算 $B/4$ 运行每个配置，第二阶段以完整预算重跑前两名并保留更好的一个。Uniform FSP、PFSP 与 \codar{} 沿用 \rnad{} 的 $\eta$，所以它们的策略更新相同。Leduc 上 $c$ 的网格更大，因为 26 筹码的收益跨度使归一化后的领先变小。大型博弈沿用 Goofspiel(4) 的配置。有些选定值落在网格边界上，例如 \codar{} 在 Leduc 上的 $c=48$ 与在 Liar's Dice 上的 $c=3$。表~\ref{tab:tuning} 列出选定的配置。
+\textbf{调参。}每个被调参的方法有 9 个配置：3 个最终熵系数 $\{0.01,0.003,0.001\}$ 乘以一个方法参数的 3 个取值（\rnad{} 与 MMD-PPO 为 $\eta\in\{0.05,0.1,0.2\}$；自博弈为学习率 $\{10^{-4},3\times10^{-4},10^{-3}\}$；Uniform FSP 为自博弈份额 $\{0.5,0.8,0.9\}$；PFSP 为指数 $\{1,2,3\}$；\codar{} 在 Leduc 上为 $c\in\{12,24,48\}$，在其余博弈上为 $\{3,6,15\}$；PSRO 为最佳响应的 rollout 数 $\{10,20,40\}$）。NFSP 使用它的 anticipatory 参数 $\{0.05,0.1,0.2\}$ 乘以学习率 $\{10^{-3},3\times10^{-3},10^{-2}\}$。第一阶段在三个调参 seed 上以预算 $B/4$ 运行每个配置，第二阶段以完整预算重跑前两名并保留更好的一个。Uniform FSP、PFSP 与 \codar{} 沿用 \rnad{} 的 $\eta$，所以它们的策略更新相同。Leduc 上 $c$ 的网格更大，因为 26 筹码的收益跨度使归一化后的领先变小。大型博弈沿用 Goofspiel(4) 的配置。表~\ref{tab:tuning} 列出选定的配置。
 
 \begin{table}[!htbp]
 \caption{选定的配置（最终熵系数与方法参数）。}
@@ -1108,7 +1098,7 @@ NFSP & 0.2，lr $10^{-2}$ & 0.2，lr $10^{-2}$ & 0.2，lr $10^{-2}$ \\
 \subsection{同预算对比}
 
 \begin{table}[!htbp]
-\caption{同预算对比的更多指标（10 个 seed 的 IQM）：末段最差 exploitability / 终点 exploitability。当前混合 $\bq$ 与时间平均 $\bar{\bq}$ 来自同一批 \codar{} 运行。}
+\caption{同预算对比：末段最差 exploitability / 终点 exploitability（IQM，10 个 seed）。}
 \label{tab:main-full}
 \begin{center}
 \footnotesize
@@ -1134,7 +1124,7 @@ PSRO (PPO BR) & 混合 & 0.008 / 0.004 & 0.514 / 0.439 & 0.195 / 0.160 \\
 \end{table}
 
 \begin{table}[!htbp]
-\caption{相对运行中最低点的退化（seed 中位数）：末段 exploitability 减去全部评估点上最低的 exploitability，括号内为最低点出现时的预算比例。}
+\caption{三个主实验博弈上相对最佳 checkpoint 的退化（seed 中位数）。}
 \label{tab:degradation}
 \begin{center}
 \footnotesize
@@ -1158,7 +1148,7 @@ PFSP & 0.483 (0.937) & 0.610 (0.084) & 0.127 (0.810) \\
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/main_tail.pdf}
 \end{center}
-\caption{逐 seed 的末段 exploitability（点）及 IQM 与 95\% CI，对数坐标。各行依次为单网络、混合与精确 BR 对照。}
+\caption{逐 seed 的末段 exploitability（点）及 IQM 与 95\% CI。}
 \label{fig:main-tail}
 \end{figure}
 
@@ -1171,7 +1161,7 @@ checkpoint 在预算比例 $1/64$、$1/16$、$1/4$、$0.8$、$0.9$ 与 $1$ 处�
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/scale_curves.pdf}
 \end{center}
-\caption{大型博弈上的精确 exploitability（5 个 seed 的均值与 95\% CI）。灰带为末段。}
+\caption{大型博弈上的精确 exploitability（5 个 seed）。}
 \label{fig:scale}
 \end{figure}
 
@@ -1179,7 +1169,7 @@ checkpoint 在预算比例 $1/64$、$1/16$、$1/4$、$0.8$、$0.9$ 与 $1$ 处�
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/scale_history.pdf}
 \end{center}
-\caption{大型博弈上与自己更早的 checkpoint 对局。上：更早的 checkpoint 对较晚 checkpoint 的最大领先，在各 checkpoint 上平均。下：曾被击败、后来又击败了更新的 checkpoint 的 checkpoint 所占比例。}
+\caption{两个大型博弈上对更早 checkpoint 的表现。}
 \label{fig:scale-history}
 \end{figure}
 
@@ -1190,7 +1180,7 @@ checkpoint 在预算比例 $1/64$、$1/16$、$1/4$、$0.8$、$0.9$ 与 $1$ 处�
 \textbf{沉睡成员。}底座网络是训练了 $2\times10^5$ 局的 \rnad{}，目标成员是它的全树最佳响应，三个诱饵是随机网络。池沿用主协议并关掉 oracle。重置之后，每个分支再训练 96 个 rollout。Hedge 与固定比例使用 \rnad{} 的 $\eta$ 与熵系数，自博弈份额为 0.5，固定比例给目标成员的系数为 0.35；移动锚规则使用 \codar{} 的配置。学习者对目标成员的败率连续 3 个 rollout 不超过 0.52 时，算作修复了它（表~\ref{tab:sleeper}、图~\ref{fig:sleeper}）。
 
 \begin{table}[!htbp]
-\caption{沉睡成员：重置后再次修复目标成员所需的 rollout 数（6 个 seed 的 IQM；“---”表示 96 个 rollout 内未修复），压制时长 $T=24/48/96/192$；以及不能击败学习者的成员所持有的训练权重份额（随 $T$ 的范围）。}
+\caption{沉睡成员：重修所需 rollout 数（$T=24/48/96/192$）与闲置权重份额（IQM，6 个 seed）。}
 \label{tab:sleeper}
 \begin{center}
 \footnotesize
@@ -1216,14 +1206,14 @@ Hedge & 0.3 / 1.7 / 4.8 / 31.5 & 0.49--0.50 & 3.3 / 8 / 9.7 / 37.7 & 0.44--0.47 
 \begin{center}
 \includegraphics[width=0.8\linewidth]{figures/vuln_sleeper.pdf}
 \end{center}
-\caption{沉睡成员。上：目标成员拿回重置前一半系数所需的 rollout 数。下：不能击败学习者的成员所持有的训练权重份额。}
+\caption{沉睡成员实验中的重加权延迟与未获胜成员权重份额（6 个 seed）。}
 \label{fig:sleeper}
 \end{figure}
 
-\textbf{隐藏漏洞。}底座是 CFR+ 2000 次迭代的平均策略，蒸馏进与学习者同样大小的网络（每个信息集上的最大总变差为 0.006--0.028）。每一档至多埋 4 个漏洞，每个漏洞所在的信息集学习者以至少 0.1 的概率到达，且所埋动作每次到达至少损失 0.05 的归一化得分。池里只有受损网络的精确最佳响应，沿用主协议并关掉 oracle；\rnad{} 只记录它对攻击者的败率。每个分支训练 256 个 rollout，所埋动作的概率连续 3 个 rollout 不超过 0.5 时，漏洞算作被修复。Leduc 上的 $[0.3,1)$ 档作为对照，因为那里所埋的动作每次到达只损失 0.14，攻击者只领先 0.002（表~\ref{tab:hidden}）。
+\textbf{隐藏漏洞。}底座是 CFR+ 2000 次迭代的平均策略，蒸馏进与学习者同样大小的网络（每个信息集上的最大总变差为 0.006--0.028）。每一档至多埋 4 个漏洞，每个漏洞所在的信息集学习者以至少 0.1 的概率到达，且所埋动作每次到达至少损失 0.05 的归一化得分。池里只有受损网络的精确最佳响应，沿用主协议并关掉 oracle；\rnad{} 只记录它对攻击者的败率。每个分支训练 256 个 rollout，所埋动作的概率连续 3 个 rollout 不超过 0.5 时，漏洞算作被修复。Leduc 上的 $[0.3,1)$ 档作为对照，因为那里所埋的动作每次到达只损失 0.14，攻击者只领先 0.002；在 Goofspiel(4) 的 $[0,0.001)$ 档上，学习者在其他分支上反制了这个确定性的攻击者，使攻击者在所埋动作被改动之前就不再赢（表~\ref{tab:hidden}）。
 
 \begin{table}[!htbp]
-\caption{隐藏漏洞：修复所需 rollout 数的中位数（6 个 seed 中修复的个数），以及攻击者的平均系数。“$>256$”表示中位数未修复。}
+\caption{隐藏漏洞：修复所需 rollout 数的中位数（6 个 seed 中修复的个数）与攻击者的平均权重。}
 \label{tab:hidden}
 \begin{center}
 \footnotesize
@@ -1245,7 +1235,7 @@ Goofspiel(4) & $[0,0.001)$ & $>256$ (0) & $>256$ (0), 0.05 & $>256$ (0), 0.002 \
 \textbf{保持。}起始网络是同一个蒸馏的 CFR+ 底座，不埋漏洞。每种方法按主协议训练 $10^6$ 局，适用时带上各自的 oracle，熵系数固定在调参得到的最终值。exploitability 每 16 个 rollout 测量一次。归档每 128 个 rollout 收入学习者的一个副本，从底座开始；它只用于评估，对带池与不带池的方法做法相同。学习者对某个归档版本的败率不超过 0.49 时，该版本算作被击败；该败率不低于 0.51 时，算作它又击败了学习者。漂移损失是在学习者自己经常到达的信息集上，相对 CFR+ 底座的每次到达归一化得分损失，按自博弈对手到达这些信息集的概率分档（表~\ref{tab:retention}、图~\ref{fig:drift}）。
 
 \begin{table}[!htbp]
-\caption{从接近纳什的起点出发的保持情况（6 个 seed 的 IQM）：末段 exploitability 相对起点的上升，对手到达概率低于 $10^{-3}$ 一档的漂移损失，以及曾被击败、后来又击败学习者的归档版本所占比例。}
+\caption{从接近纳什的起点出发的保持情况（IQM，6 个 seed）：exploitability 上升、低到达率漂移损失与被遗忘的归档比例。}
 \label{tab:retention}
 \begin{center}
 \footnotesize
@@ -1270,7 +1260,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.8\linewidth]{figures/forgetting_drift.pdf}
 \end{center}
-\caption{保持：相对 CFR+ 底座的漂移损失，横轴为自博弈对手到达信息集的概率（6 个 seed 的 IQM 与 95\% CI）。在 Goofspiel(4) 上只有最高与最低两档含有信息集。}
+\caption{保持：各对手到达概率档上相对 CFR+ 底座的每次到达漂移损失（6 个 seed）。}
 \label{fig:drift}
 \end{figure}
 
@@ -1280,7 +1270,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.8\linewidth]{figures/open_pool.pdf}
 \end{center}
-\caption{由 $N$ 个外部成员组成的开放池。上：学习者已经击败的成员所持有的训练权重份额。下：末段 exploitability（6 个 seed 的 IQM 与 95\% CI）；虚线为不带池的 \rnad{}。}
+\caption{规模为 $N$ 的开放池中已被击败成员的权重份额与末段 exploitability（6 个 seed）。}
 \label{fig:open-pool}
 \end{figure}
 
@@ -1293,7 +1283,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/ablations_forest.pdf}
 \end{center}
-\caption{消融（$10^6$ 局，6 个 seed）：末段 exploitability 的逐 seed 配对差，变体减基准（IQM 与 95\% CI；负值更好），并标出赢与输的 seed 数。}
+\caption{\codar{} 单因素消融：相对基准的末段 exploitability 配对差（IQM [95\% CI]，6 个 seed）。}
 \label{fig:ablations}
 \end{figure}
 
@@ -1307,7 +1297,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/theory_necessity.pdf}
 \end{center}
-\caption{设计要素的必要性（exploitability 的 seed 均值与 95\% CI）。左：显式的自博弈对手、其他的自博弈系数，以及冻结的池权重。右：固定与移动的对偶锚，从命题~\ref{prop:rps} 的不动点出发。}
+\caption{矩阵博弈上破坏精确 \codar{} 单个设计要素的效果。}
 \label{fig:theory-nec}
 \end{figure}
 
@@ -1315,7 +1305,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.75\linewidth]{figures/theory_anchor_basin.pdf}
 \end{center}
-\caption{移动锚卡在非纳什点上的随机起点比例（Wilson 95\% CI）。固定锚从不卡住。}
+\caption{移动锚卡在非纳什点上的随机起点比例（固定锚：0\%）。}
 \label{fig:basin}
 \end{figure}
 
@@ -1323,7 +1313,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/theory_adversarial_pool.pdf}
 \end{center}
-\caption{对抗性的池：由对抗者挑选池成员时，最终 exploitability 的中位数。}
+\caption{对抗性的池：各池规则与对抗日程下最终 exploitability 的中位数。}
 \label{fig:adversarial}
 \end{figure}
 
@@ -1331,7 +1321,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.9\linewidth]{figures/theory_pool_rules.pdf}
 \end{center}
-\caption{同一个池序列上的各种池规则；虚线处学习者被重置回初始点。}
+\caption{同一池序列上的各池规则（虚线：学习者重置回 $\bx_0$）。}
 \label{fig:pool-rules}
 \end{figure}
 
@@ -1339,7 +1329,7 @@ PFSP & 0.275 & 0.0017 & 0 & 1.514 & 0.0040 & 0 \\
 \begin{center}
 \includegraphics[width=0.85\linewidth]{figures/theory_inexact.pdf}
 \end{center}
-\caption{注入误差：最终 exploitability 的中位数，随估计误差 $\xi$ 与策略更新误差 $\delta$ 的变化。}
+\caption{注入误差：最终 exploitability 中位数随估计误差 $\xi$ 与策略更新误差 $\delta$ 的变化。}
 \label{fig:inexact}
 \end{figure}
 
