@@ -135,15 +135,15 @@ X=\simplex_M:=\Big\{\bx\in\mathbb R^M:\ x_i\ge0,\ \textstyle\sum_ix_i=1\Big\}.
 \]
 We write $\simplex_n$ for the probability simplex in $\mathbb R^n$ and $\be_i$ for its $i$-th standard basis vertex throughout. By Kuhn's theorem~\citep{kuhn1953}, in a finite sequential game with perfect recall any behavior policy represented by a network has a realization-equivalent mixed strategy. We therefore state the analysis in normal form while running the algorithm directly on behavior policies, without enumerating the $M$ pure strategies.
 
-Let $\ell(\bx;\by)\in[0,1]$ denote the expected loss of strategy $\bx$ against $\by$, with outcomes scaled so that a loss counts 1, a win 0, and a tie $\tfrac12$. We call it the \emph{loss rate}. Zero-sum payoffs and symmetry give $\ell(\bx;\by)+\ell(\by;\bx)=1$, so there exists a skew-symmetric matrix $S=-S^\top$ such that
+For native zero-sum payoffs in $[u_{\min},u_{\max}]$ of span $R:=u_{\max}-u_{\min}$, let $\ell(\bx;\by)\in[0,1]$ denote the affinely normalized expected loss of strategy $\bx$ against $\by$ ($u_{\min}\mapsto1$, tie $0\mapsto\tfrac12$, $u_{\max}\mapsto0$). We call it the \emph{loss rate}. Zero-sum payoffs and symmetry give $\ell(\bx;\by)+\ell(\by;\bx)=1$, so there exists a skew-symmetric matrix $S=-S^\top$ such that
 \[
 \ell(\bx;\by)=\tfrac12+\bx^\top S\by,\qquad \bx^\top S\bx=0 .
 \]
-In particular, every strategy ties with itself. The quality of a strategy is measured by its \emph{exploitability}, the amount by which the best opponent beats it,
+In particular, every strategy ties with itself. The quality of a strategy is measured by its \emph{exploitability}, the best opponent's normalized lead,
 \[
-\Expl(\bx):=\max_{\by\in X}\ell(\bx;\by)-\tfrac12=\max_j(S^\top \bx)_j\ \ge\ 0 .
+\Expl(\bx):=\max_{\by\in X}\ell(\bx;\by)-\tfrac12=\max_j(S^\top \bx)_j\ \in\ [0,\tfrac12] ,
 \]
-A \emph{Nash strategy} $\xs$ is one with $\Expl(\xs)=0$. It exists by the minimax theorem~\citep{vonneumann1928}, and
+which equals $R\,\Expl(\bx)\in[0,R/2]$ in native payoff units ($\mathrm{NashConv}/2$). A \emph{Nash strategy} $\xs$ is one with $\Expl(\xs)=0$. It exists by the minimax theorem~\citep{vonneumann1928}, and
 \begin{equation}
 \xs\ \text{is Nash}\iff {\xs}^\top S\by\le0\ \ \forall \by\in X\iff \by^\top S\xs\ge0\ \ \forall \by\in X .
 \label{eq:nash}
@@ -184,8 +184,8 @@ The projection onto the simplex has the threshold form $\Proj_{\simplex_n}(\bz)_
 Symbol & Meaning \\
 \midrule
 $X=\simplex_M$ & mixed strategies over $M$ pure strategies \\
-$\ell(\bx;\by)$, $S$ & loss rate of $\bx$ against $\by$; $\ell(\bx;\by)=\tfrac12+\bx^\top S\by$ with $S=-S^\top$ \\
-$\Expl(\bx)$, $\xs$ & exploitability; a Nash strategy, $\Expl(\xs)=0$ \\
+$\ell(\bx;\by)$, $S$, $R$ & loss rate $\tfrac12+\bx^\top S\by\in[0,1]$ ($S=-S^\top$); payoff span $R=u_{\max}-u_{\min}$ \\
+$\Expl(\bx)$, $\xs$ & exploitability in $[0,\tfrac12]$ (native $R\,\Expl(\bx)$); Nash strategy, $\Expl(\xs)=0$ \\
 $\bx_k$, $\dx_k$ & the learner after step $k$; its step $\dx_k=\bx_{k+1}-\bx_k$ \\
 $P=\{\by_1,\dots,\by_N\}$, $\ell_i(\bx)$ & pool of frozen opponents; loss rate of $\bx$ against $\by_i$ \\
 $\aug(\bx)$ & $(\ell_1(\bx),\dots,\ell_N(\bx),\tfrac12)$, the loss rates with self-play appended \\
@@ -585,7 +585,7 @@ We first verify the exact algorithm on random skew-symmetric, cyclic, spinning-t
 \subsection{Matched-Budget Comparison}
 \label{sec:exp-neural}
 
-We compare \codar{} with seven baselines on Leduc poker~\citep{southey2005bayesbluff}, Goofspiel(4)~\citep{ross1971goofspiel}, and Liar's Dice~\citep{lisy2015oos} in OpenSpiel~\citep{lanctot2019openspiel}. The single-network baselines are PPO self-play, the PPO regularized self-play methods \rnad{} and MMD-PPO, and two pool methods, uniform fictitious self-play (FSP)~\citep{heinrich2015fsp} and PFSP, which share the pool, oracle, loss estimator, and policy update with \codar{} and differ only in the weight rule. The mixture baselines are PSRO with PPO best responses and Neural Fictitious Self-Play (NFSP)~\citep{heinrich2016nfsp}. To isolate the effect of oracle quality, we also evaluate \codar{} without an oracle and run \codar{}, PFSP, and PSRO with an exact best-response (BR) oracle. All PPO methods share the network architecture and PPO hyperparameters, and every method is tuned under the same two-stage protocol on held-out seeds at a matched budget of $B=4\times10^6$ total games, counting learner, exploiter, and evaluation games (Appendix~\ref{app:impl}). We report \emph{tail exploitability}, the mean exact full-tree exploitability over $[0.8B,B]$, via the interquartile mean (IQM) and bootstrap 95\% confidence interval (CI) across 10 seeds~\citep{agarwal2021precipice}.
+We compare \codar{} with seven baselines on Leduc poker~\citep{southey2005bayesbluff}, Goofspiel(4)~\citep{ross1971goofspiel}, and Liar's Dice~\citep{lisy2015oos} in OpenSpiel~\citep{lanctot2019openspiel}. The single-network baselines are PPO self-play, the PPO regularized self-play methods \rnad{} and MMD-PPO, and two pool methods, uniform fictitious self-play (FSP)~\citep{heinrich2015fsp} and PFSP, which share the pool, oracle, loss estimator, and policy update with \codar{} and differ only in the weight rule. The mixture baselines are PSRO with PPO best responses and Neural Fictitious Self-Play (NFSP)~\citep{heinrich2016nfsp}. To isolate the effect of oracle quality, we also evaluate \codar{} without an oracle and run \codar{}, PFSP, and PSRO with an exact best-response (BR) oracle. All PPO methods share the network architecture and PPO hyperparameters, and every method is tuned under the same two-stage protocol on held-out seeds at a matched budget of $B=4\times10^6$ total games, counting learner, exploiter, and evaluation games (Appendix~\ref{app:impl}). Following OpenSpiel conventions, sequential-game evaluations report exact full-tree exploitability in native payoff units, $R\,\Expl(\bx)$ ($R=2$, range $[0,1]$ on $\pm1$ games; $R=26$ chips, range $[0,13]$ on Leduc), while the weight rule uses $[0,1]$-normalized loss rates. We summarize curves by \emph{tail exploitability}, the mean over $[0.8B,B]$, via the interquartile mean (IQM) and bootstrap 95\% confidence interval (CI) across 10 seeds~\citep{agarwal2021precipice}.
 
 \begin{figure}[t]
 \begin{center}
@@ -597,7 +597,7 @@ We compare \codar{} with seven baselines on Leduc poker~\citep{southey2005bayesb
 \end{figure}
 
 \begin{table}[t]
-\caption{Tail exploitability at budget $B=4\times10^6$ (IQM [95\% CI], 10 seeds; bold: best single network).}
+\caption{Native-payoff tail exploitability $R\,\Expl(\bx)$ at budget $B=4\times10^6$ ($R=2$ on Goofspiel and Liar's Dice, $26$ chips on Leduc; IQM [95\% CI], 10 seeds; bold: best single network).}
 \label{tab:main}
 \begin{center}
 \scriptsize
@@ -1042,7 +1042,7 @@ Entropy & coefficient decreases linearly from 0.03 to the tuned final value over
 
 \textbf{Implementation.} Table~\ref{tab:settings} lists the settings. After each rollout, the game outcomes update the loss estimates $\hat{\bell}$ and the weights are re-projected, so the pairing $\bw=\bw(\bx_{k+1})$ of \S\ref{sec:primal} is approached by alternating updates of the policy and the weights. Each game is weighted by the importance ratio of its arm, so the expected update follows the coefficients $(\bw_P,1)$. Probe games update the loss estimates only. The exact-BR control admits the full-tree best response on the same schedule as the PPO oracle. Across the 3950 oracle admissions in the main runs, the one-sided 95\% lower confidence bound on $[\ell(\hat\bx;\hat\by)-\tfrac12]^+$ was positive 2487 times (63.0\%) and exceeded true exploitability only 3 times (0.08\%).
 
-\textbf{Budget and evaluation.} The budget counts every game a method consumes, including learner games and probes, exploiter training, admission evaluation, pool sweeps, and PSRO meta-games. Since the entropy coefficient is constant after $0.8B$ games, the tail $[0.8B,B]$ is measured at a fixed entropy coefficient. Exploitability is evaluated at 12 log-spaced points before $0.8B$ and every 8 rollouts in the tail, and is held between evaluations. Besides tail exploitability, we report worst tail exploitability, the maximum over $[0.8B,B]$, and final exploitability at $B$. Seeds 100--109 are used for the main comparison, 100--105 for the ablations and controlled experiments, and 100--104 for the large games; tuning uses seeds 900--902, which enter no reported table.
+\textbf{Budget and evaluation.} The budget counts every game a method consumes, including learner games and probes, exploiter training, admission evaluation, pool sweeps, and PSRO meta-games. Sequential-game tables and figures report OpenSpiel's standard native-payoff exploitability $\mathrm{NashConv}/2=R\,\Expl(\bx)$, where the payoff span $R=u_{\max}-u_{\min}$ is $26$ chips on Leduc ($u\in[-13,13]$) and $2$ on Goofspiel(4), Liar's Dice, Dark Hex, and Phantom TTT ($u\in[-1,1]$), while the learner's loss estimator normalizes game outcomes by $R$ into $[0,1]$. Since the entropy coefficient is constant after $0.8B$ games, the tail $[0.8B,B]$ is measured at a fixed entropy coefficient. Exploitability is evaluated at 12 log-spaced points before $0.8B$ and every 8 rollouts in the tail, and is held between evaluations. Besides tail exploitability, we report worst tail exploitability, the maximum over $[0.8B,B]$, and final exploitability at $B$. Seeds 100--109 are used for the main comparison, 100--105 for the ablations and controlled experiments, and 100--104 for the large games; tuning uses seeds 900--902, which enter no reported table.
 
 \textbf{Tuning.} Each tuned method searches 9 configurations formed by 3 final entropy coefficients $\{0.01,0.003,0.001\}$ and 3 values of one method parameter. Specifically, \rnad{} and MMD-PPO sweep $\eta\in\{0.05,0.1,0.2\}$; PPO self-play sweeps the learning rate $\{10^{-4},3\times10^{-4},10^{-3}\}$; uniform FSP sweeps the self-play share $\{0.5,0.8,0.9\}$; PFSP sweeps the exponent $\{1,2,3\}$; \codar{} sweeps $c\in\{12,24,48\}$ on Leduc and $\{3,6,15\}$ on the other games; and PSRO sweeps best-response rollouts $\{10,20,40\}$. NFSP sweeps its anticipatory parameter $\{0.05,0.1,0.2\}$ and learning rate $\{10^{-3},3\times10^{-3},10^{-2}\}$. Stage 1 runs every configuration with budget $B/4$ on the three tuning seeds, and stage 2 reruns the top two with the full budget and keeps the better one. Uniform FSP, PFSP, and \codar{} inherit $\eta$ from \rnad{}, so their policy updates are identical. The grid for $c$ on Leduc is larger because the 26-chip payoff range shrinks the leads after normalization. The large games reuse the Goofspiel(4) configurations. Table~\ref{tab:tuning} lists the selected configurations.
 

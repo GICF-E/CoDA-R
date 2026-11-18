@@ -154,15 +154,15 @@
 
 考虑有限的双人零和博弈，每局开始前随机分配两个座位，使博弈\emph{对称}：两名玩家面对同一个决策问题。玩家有 $M$ 条纯策略，混合策略是概率单纯形 $X=\simplex_M:=\{\bx\in\mathbb R^M:x_i\ge0,\ \sum_ix_i=1\}$ 中的点；$\simplex_n$ 表示 $\mathbb R^n$ 中的单纯形，$\be_i$ 表示其第 $i$ 个标准基顶点。由 Kuhn 定理\citep{kuhn1953}，在完美回忆的有限序贯博弈中，网络所表示的任一行为策略都有实现等价的混合策略；因此我们在正规形下分析算法，而在行为策略上直接运行，从不枚举纯策略。
 
-记 $\ell(\bx;\by)\in[0,1]$ 为策略 $\bx$ 对 $\by$ 的期望损失，结果按输记 1、赢记 0、平记 $\tfrac12$ 归一化。我们称它为\emph{败率}。由零和与对称性，$\ell(\bx;\by)+\ell(\by;\bx)=1$，故存在反对称矩阵 $S=-S^\top$ 使
+对跨度为 $R:=u_{\max}-u_{\min}$ 的原生零和收益 $[u_{\min},u_{\max}]$，记 $\ell(\bx;\by)\in[0,1]$ 为策略 $\bx$ 对 $\by$ 仿射归一化后的期望损失（$u_{\min}\mapsto1$、平局 $0\mapsto\tfrac12$、$u_{\max}\mapsto0$），称为\emph{败率}。由零和与对称性，$\ell(\bx;\by)+\ell(\by;\bx)=1$，故存在反对称矩阵 $S=-S^\top$ 使
 \[
 \ell(\bx;\by)=\tfrac12+\bx^\top S\by,\qquad \bx^\top S\bx=0 .
 \]
-特别地，任何策略与自己打平。策略的质量用\emph{可利用度}（exploitability）衡量，即最好的对手能击败它多少：
+特别地，任何策略与自己打平。策略的质量用\emph{可利用度}（exploitability）衡量，即最佳对手的归一化领先幅度：
 \[
-\Expl(\bx):=\max_{\by\in X}\ell(\bx;\by)-\tfrac12=\max_j(S^\top \bx)_j\ \ge\ 0 .
+\Expl(\bx):=\max_{\by\in X}\ell(\bx;\by)-\tfrac12=\max_j(S^\top \bx)_j\ \in\ [0,\tfrac12] ,
 \]
-\emph{纳什策略} $\xs$ 是满足 $\Expl(\xs)=0$ 的策略。由 minimax 定理，它存在\citep{vonneumann1928}，并且
+换算为原生收益单位（即 $\mathrm{NashConv}/2$）则为 $R\,\Expl(\bx)\in[0,R/2]$。\emph{纳什策略} $\xs$ 是满足 $\Expl(\xs)=0$ 的策略；由 minimax 定理它存在\citep{vonneumann1928}，并且
 \begin{equation}
 \xs\ \text{是纳什策略}\iff {\xs}^\top S\by\le0\ \ \forall \by\in X\iff \by^\top S\xs\ge0\ \ \forall \by\in X .
 \label{eq:nash}
@@ -414,7 +414,7 @@ $b(\bx)\ge\tfrac1c\|\bw(\bx)-\esp\|^2$。
 
 \textbf{PPO 实现。}精确算法的每一步对应包含若干 rollout 的一个\emph{外环步}，结束时把策略锚移到当前学习者。外环步内，败率用对局结果的滑动平均估计，权重在每个 rollout 后重投影，对手按 $(\bw_P,\wsp)$ 抽取并乘以重要性比，近端项采用 R-NaD 式的朝策略锚 Kullback--Leibler（KL）奖励塑形，oracle 为 PPO exploiter（附录表~\ref{tab:impl}）。
 
-我们在 OpenSpiel\citep{lanctot2019openspiel} 的 Leduc 扑克\citep{southey2005bayesbluff}、Goofspiel(4)\citep{ross1971goofspiel} 与 Liar's Dice\citep{lisy2015oos} 上将 \codar{} 与七个基线比较。单网络基线包括 PPO 自博弈、\rnad{}、MMD-PPO、均匀虚拟自博弈（FSP）\citep{heinrich2015fsp} 与 PFSP，其中 FSP 与 PFSP 与 \codar{} 共用池、oracle、估计器与策略更新；混合基线包括使用 PPO 最佳响应的 PSRO 与 Neural Fictitious Self-Play（NFSP）\citep{heinrich2016nfsp}。为检验 oracle 质量，我们还评估了无 oracle 的 \codar{}，并用精确最佳响应（BR）oracle 运行了 \codar{}、PFSP 与 PSRO。所有方法均在留出 seed 上按同一两阶段协议调参，总预算统一为 $B=4\times10^6$ 局，计入学习者、exploiter 与评估的全部对局（附录~\ref{app:impl}）。我们报告\emph{末段 exploitability}，即 $[0.8B,B]$ 上精确 exploitability 的均值，给出 10 个 seed 上的四分位均值（IQM）与 bootstrap 95\% 置信区间（CI）\citep{agarwal2021precipice}。
+我们在 OpenSpiel\citep{lanctot2019openspiel} 的 Leduc 扑克\citep{southey2005bayesbluff}、Goofspiel(4)\citep{ross1971goofspiel} 与 Liar's Dice\citep{lisy2015oos} 上将 \codar{} 与七个基线比较。单网络基线包括 PPO 自博弈、\rnad{}、MMD-PPO、均匀虚拟自博弈（FSP）\citep{heinrich2015fsp} 与 PFSP，其中 FSP 与 PFSP 与 \codar{} 共用池、oracle、估计器与策略更新；混合基线包括使用 PPO 最佳响应的 PSRO 与 Neural Fictitious Self-Play（NFSP）\citep{heinrich2016nfsp}。为检验 oracle 质量，我们还评估了无 oracle 的 \codar{}，并用精确最佳响应（BR）oracle 运行了 \codar{}、PFSP 与 PSRO。所有方法均在留出 seed 上按同一两阶段协议调参，总预算统一为 $B=4\times10^6$ 局，计入学习者、exploiter 与评估的全部对局（附录~\ref{app:impl}）。遵循 OpenSpiel 惯例，序贯博弈评估报告原生收益单位下的精确可利用度 $R\,\Expl(\bx)$（$\pm1$ 博弈上 $R=2$；Leduc 上 $R=26$ 筹码），汇总为 $[0.8B,B]$ 上的均值即\emph{末段 exploitability}，给出 10 个 seed 上的四分位均值（IQM）与 bootstrap 95\% 置信区间（CI）\citep{agarwal2021precipice}。
 
 \begin{figure}[t]
 \begin{center}
@@ -426,7 +426,7 @@ $b(\bx)\ge\tfrac1c\|\bw(\bx)-\esp\|^2$。
 \end{figure}
 
 \begin{table}[t]
-\caption{预算 $B=4\times10^6$ 下的末段 exploitability（IQM [95\% CI]，10 个 seed；粗体为最佳单网络）。}
+\caption{预算 $B=4\times10^6$ 下原生收益单位的末段 exploitability $R\,\Expl(\bx)$（Goofspiel 与 Liar's Dice 上 $R=2$，Leduc 上 $R=26$ 筹码；IQM [95\% CI]，10 个 seed；粗体为最佳单网络）。}
 \label{tab:main}
 \begin{center}
 \scriptsize
@@ -615,8 +615,8 @@ S\big(\lambda \be_1+\tfrac23\by\big)=S\big(\tfrac13,\tfrac13,\tfrac13\big)^\top=
 记号 & 含义 \\
 \midrule
 $X=\simplex_M$ & $M$ 条纯策略上的混合策略 \\
-$\ell(\bx;\by)$、$S$ & $\bx$ 对 $\by$ 的败率；$\ell(\bx;\by)=\tfrac12+\bx^\top S\by$，$S=-S^\top$ \\
-$\Expl(\bx)$、$\xs$ & exploitability；纳什策略，$\Expl(\xs)=0$ \\
+$\ell(\bx;\by)$、$S$、$R$ & 败率 $\tfrac12+\bx^\top S\by\in[0,1]$（$S=-S^\top$）；收益跨度 $R=u_{\max}-u_{\min}$ \\
+$\Expl(\bx)$、$\xs$ & 可利用度 $\in[0,\tfrac12]$（原生单位 $R\,\Expl(\bx)$）；纳什策略，$\Expl(\xs)=0$ \\
 $\bx_k$、$\dx_k$ & 第 $k$ 步之后的学习者；它的一步 $\dx_k=\bx_{k+1}-\bx_k$ \\
 $P=\{\by_1,\dots,\by_N\}$、$\ell_i(\bx)$ & 冻结对手组成的对手池；$\bx$ 对 $\by_i$ 的败率 \\
 $\aug(\bx)$ & $(\ell_1(\bx),\dots,\ell_N(\bx),\tfrac12)$，补上自博弈一项的败率向量 \\
@@ -972,7 +972,7 @@ Oracle & 针对冻结的学习者训练 20 个 rollout 的 PPO exploiter，经 2
 
 \textbf{实现。}表~\ref{tab:settings} 列出了各项设置。每个 rollout 之后，对局结果更新败率估计 $\hat{\bell}$，权重重新投影，所以 \S\ref{sec:primal} 中的配对 $\bw=\bw(\bx_{k+1})$ 由策略与权重的交替更新来逼近。每一局都乘以所属臂的重要性比，所以期望更新遵循系数 $(\bw_P,1)$。探测对局只更新败率估计。精确 BR 对照按与 PPO oracle 相同的日程放入全树最佳响应。在主实验的 3950 次入池中，$[\ell(\hat\bx;\hat\by)-\tfrac12]^+$ 的单侧 95\% 置信下界为正 2487 次（63.0\%），超过真实 exploitability 仅 3 次（0.08\%）。
 
-\textbf{预算与评估。}预算计入一个方法消耗的每一局，包括学习者的对局与探测对局、exploiter 的训练、入池评估、全池扫描，以及 PSRO 的元博弈对局。熵系数在 $0.8B$ 局之后保持不变，所以末段 $[0.8B,B]$ 是在固定的熵系数下测量的。exploitability 在 $0.8B$ 之前按对数间隔评估 12 次，在末段每 8 个 rollout 评估一次，两次评估之间保持上一次的值。除末段 exploitability 外，我们还报告 $[0.8B,B]$ 上的最大末段最差 exploitability 与 $B$ 处的终点 exploitability。主实验使用 seed 100--109，消融与受控实验使用 100--105，大型博弈使用 100--104；调参使用 seed 900--902，它们不进入任何报告的表。
+\textbf{预算与评估。}预算计入一个方法消耗的每一局，包括学习者的对局与探测对局、exploiter 的训练、入池评估、全池扫描，以及 PSRO 的元博弈对局。序贯博弈各图表报告 OpenSpiel 标准原生收益单位下的可利用度 $\mathrm{NashConv}/2=R\,\Expl(\bx)$，其中收益跨度 $R=u_{\max}-u_{\min}$ 在 Leduc 上为 $26$ 筹码（$u\in[-13,13]$），在 Goofspiel(4)、Liar's Dice、Dark Hex 与 Phantom TTT 上为 $2$（$u\in[-1,1]$），而权重规则将对局结果除以 $R$ 归一化到 $[0,1]$。熵系数在 $0.8B$ 局之后保持不变，所以末段 $[0.8B,B]$ 是在固定的熵系数下测量的。exploitability 在 $0.8B$ 之前按对数间隔评估 12 次，在末段每 8 个 rollout 评估一次，两次评估之间保持上一次的值。除末段 exploitability 外，我们还报告 $[0.8B,B]$ 上的最大末段最差 exploitability 与 $B$ 处的终点 exploitability。主实验使用 seed 100--109，消融与受控实验使用 100--105，大型博弈使用 100--104；调参使用 seed 900--902，它们不进入任何报告的表。
 
 \textbf{调参。}每个被调参的方法搜索由 3 个最终熵系数 $\{0.01,0.003,0.001\}$ 与一个方法参数的 3 个取值构成的 9 个配置。具体而言，\rnad{} 与 MMD-PPO 搜索 $\eta\in\{0.05,0.1,0.2\}$；PPO 自博弈搜索学习率 $\{10^{-4},3\times10^{-4},10^{-3}\}$；Uniform FSP 搜索自博弈份额 $\{0.5,0.8,0.9\}$；PFSP 搜索指数 $\{1,2,3\}$；\codar{} 在 Leduc 上搜索 $c\in\{12,24,48\}$，在其余博弈上搜索 $\{3,6,15\}$；PSRO 搜索最佳响应的 rollout 数 $\{10,20,40\}$。NFSP 搜索 anticipatory 参数 $\{0.05,0.1,0.2\}$ 与学习率 $\{10^{-3},3\times10^{-3},10^{-2}\}$。第一阶段在三个调参 seed 上以预算 $B/4$ 运行每个配置，第二阶段以完整预算重跑前两名并保留更好的一个。Uniform FSP、PFSP 与 \codar{} 沿用 \rnad{} 的 $\eta$，所以它们的策略更新相同。Leduc 上 $c$ 的网格更大，因为 26 筹码的收益跨度使归一化后的领先变小。大型博弈沿用 Goofspiel(4) 的配置。表~\ref{tab:tuning} 列出选定的配置。
 
